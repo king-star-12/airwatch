@@ -28,69 +28,73 @@ Question 2 is the one that matters most. An investigation that can only ever say
 ## How it works
 
 ```
-WATCH ─────────► DETECT ─────────► CORROBORATE ─────────► DECIDE
-live ADS-B       deterministic     live web search         human, with
-telemetry        detectors         (SerpApi)               the evidence
+WATCH ────────► DETECT ────────► CORROBORATE ────────► DECIDE ────────► DOCUMENT
+live ADS-B      deterministic    space weather +       human, with      signed case
+telemetry       detectors        official NOTAMs       the evidence     file (PDF)
 ```
 
 **1 · Watch.** Live ADS-B for seven known interference regions, pulled from public community aggregators with multi-source failover and a last-good cache, so the board never silently goes blank.
 
 **2 · Detect.** Six deterministic detectors — degraded GPS integrity, baro/geometric altitude desync, impossible position jumps, stale-position "dark" aircraft, sustained holding, emergency squawks. Crucially these are filtered to *enroute ADS-B jets*, because low integrity on a light aircraft on final is normal and low integrity at cruise is not. **No model sits in the decision path.** The same inputs always produce the same finding, and it can be replayed.
 
-**3 · Corroborate — the part built for this hackathon.** When detectors fire, Airwatch searches the live web via **SerpApi**, scoped to the region and time window, and sorts what comes back:
+**3 · Corroborate — ask the sun first.** This is the step most GPS-interference monitors skip, and skipping it is how they end up crying wolf.
 
-| Bucket | Meaning |
+GNSS integrity does not only degrade because someone is jamming it. **Space weather degrades it too.** A geomagnetic storm drives ionospheric scintillation that scatters the L-band signals GPS depends on; a solar radio burst raises the noise floor across whole continents. Both produce exactly the signature this system watches for — low NIC, low NACp, many aircraft, wide area.
+
+So before Airwatch escalates anything, it checks whether the sun did it:
+
+| Source | Role | Key needed |
+|---|---|---|
+| **NOAA SWPC** — planetary Kp index + live alerts | **natural-cause check** — rules the storm in or out | none |
+| **FAA NOTAM API** | **official record** — has an authority already published interference here? | free, optional |
+
+That produces a verdict a reviewer can actually use:
+
+| Status | Meaning |
 |---|---|
-| **CORROBORATING** | independent reporting consistent with interference here |
-| **EXCULPATORY** | a published benign cause — exercise, scheduled test, known outage |
-| **CONTEXT** | background, neither confirming nor clearing |
-
-It deliberately runs a *confirming* query and a *clearing* query. Searching only for confirmation is how an investigation talks itself into a conclusion.
+| `NOTAM_CONFIRMED` | an aviation authority has already published interference here |
+| `SPACE_WEATHER_CONFOUND` | geomagnetic storm running — natural cause is live, **hold** |
+| `NATURAL_CAUSE_EXCLUDED` | conditions quiet — the sun does not explain this |
 
 **4 · Decide.** A human gets a case file: what fired, on which aircraft, at what altitude, what the open record says, what was ruled out, and a recommended action — with every claim carrying a citation and a hash-chained evidence trail.
 
-### Why SerpApi is load-bearing here
+**4 · Decide — and hand over a document.** A dashboard finding has a short life. The moment it has to travel — to an ops centre, an insurer, a regulator — it has to become a document.
 
-Without it, Airwatch produces `anomaly index 27.5` — a number nobody can act on.
-With it, Airwatch produces:
+The case is rendered as a **Navigation Integrity Case** report and converted to PDF by the **Nutrient DWS Processor API**. It carries its own **SHA-256 integrity digest**, computed over the case before rendering and printed on the document: re-hash the exported case and compare, and a single altered field shows up as a mismatch. The report does not merely describe the evidence — it *is* checkable evidence.
 
-> **ESCALATE** — 4 aircraft reporting degraded navigation integrity over the Baltic, independently corroborated by 3 sources including an EASA advisory.
-
-or, just as valuable:
-
-> **REVIEW** — a published NATO exercise NOTAM covers this window. Read it before escalating.
-
-Live, structured search is what converts telemetry into a defensible conclusion. It is not an enrichment step bolted onto the side; it is the difference between an alarm and an investigation.
+Without a Nutrient key the same document is served as printable HTML. A case is never withheld because a third-party service is unavailable.
 
 ## Live example
 
 Real output, live data, no synthetic inputs:
 
 ```
-CASE:     AW-BALTIC-1788112288
-Region:   Baltic · Kaliningrad
-Observed: 81 aircraft   Flagged: 4
+CASE:     AW-BALTIC-1788114021       Baltic · Kaliningrad
+Observed: 82 aircraft   Flagged: 3   Geomagnetic Kp: 2.67 (quiet)
 
-  CSZ887   Degraded GPS integrity   (anomaly 95.0, critical)
-           Enroute at 38000 ft with NIC 0, NACp 0 — position
-           integrity consistent with GPS interference.
-  PBD6831  Degraded GPS integrity   (anomaly 95.0, critical)
-  LBT814   Degraded GPS integrity   (anomaly 95.0, critical)
+  EWG7QZ   Degraded GPS integrity   (95.0, critical)
+           Enroute at 38000 ft with NIC 0, NACp 0
+  CCA878   Degraded GPS integrity   (95.0, critical)
+  BTI15M   Tight turn               (45.0, elevated)
 
-ACTION:   MONITOR — 3 aircraft at critical integrity loss with no
-          open reporting yet. This is what early looks like.
+NATURAL-CAUSE CHECK: quiet (Kp 2.67), no GNSS-relevant alerts
+ACTION:   ESCALATE — 2 aircraft at critical integrity loss with
+          geomagnetic conditions quiet. Natural causes do not
+          explain this.
 ```
+
+That last line is the whole product. Not *"something looks wrong"* — a conclusion with the alternative explicitly ruled out.
 
 ## Run it
 
 ```bash
 git clone https://github.com/king-star-12/airwatch && cd airwatch
 python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
-cp .env.example .env          # add SERPAPI_KEY to enable corroboration
+cp .env.example .env          # optional keys; runs without any
 cd backend && ../.venv/bin/python -m uvicorn app.main:app --port 8099
 ```
 
-Open <http://localhost:8099>. No API key is required to see it work — the watch and detect layers run on public data. Adding `SERPAPI_KEY` switches on corroboration and completes the loop.
+Open <http://localhost:8099>. **No API key is required** — watch, detect and the natural-cause check all run on public, keyless data. Adding `NUTRIENT_API_KEY` upgrades the case report from HTML to PDF; adding FAA credentials adds official NOTAMs.
 
 ```bash
 # the case endpoint — detection plus the open record
@@ -102,6 +106,7 @@ curl localhost:8099/api/region/baltic/case | jq
 | `GET /api/regions` | monitored regions and current index |
 | `GET /api/region/{id}/live` | live aircraft, detections, index |
 | **`GET /api/region/{id}/case`** | **full case file with corroboration** |
+| **`GET /api/region/{id}/report`** | **the case as a PDF/HTML document with integrity digest** |
 | `GET /api/region/{id}/history` | index over time |
 | `GET /api/evidence` | hash-chained evidence ledger |
 | `GET /api/health` | feed health and per-source diagnostics |
@@ -110,7 +115,9 @@ curl localhost:8099/api/region/baltic/case | jq
 
 **The model never decides.** Detection is deterministic code. A language model can narrate a case and answer questions about it, but it cannot create, suppress or alter a detection. That is what makes a finding replayable and auditable — and it is why the system still works with the model switched off entirely.
 
-**Corroboration cannot manufacture a detection.** Search moves the recommended *action*, never the finding. A benign explanation downgrades urgency; it does not erase what the telemetry said.
+**Corroboration cannot manufacture a detection.** It moves the recommended *action*, never the finding. A geomagnetic storm downgrades urgency; it does not erase what the telemetry said.
+
+**Rule out before you escalate.** The natural-cause check runs on every case, including the quiet ones. An investigation that can only ever say "suspicious" is an alarm.
 
 **Degrade, never blank.** Multi-source feed failover, per-source cooldown on rate limits, and a disk-backed last-good cache. A monitoring tool that shows an empty screen when a dependency wobbles is worse than useless, because silence reads as "all clear."
 
@@ -122,12 +129,13 @@ Stated plainly, because a monitoring tool that oversells itself is dangerous:
 
 - ADS-B integrity fields are *reported by the aircraft*. They are strong evidence of GNSS trouble, not proof of deliberate jamming.
 - Community ADS-B coverage is uneven; sparse regions (active conflict airspace especially) genuinely have few aircraft, and the tool says so rather than inventing coverage.
-- Corroboration reflects what is publicly published. Absence of reporting is not absence of interference — early detection means being ahead of the record, which is the entire point.
+- The space-weather check uses a *global* index. A planetary Kp cannot prove a specific region was unaffected, only that no planet-wide driver was active — which is why quiet conditions **exclude** a natural cause rather than confirming interference.
+- NOTAM coverage depends on the issuing authority and a configured key; no NOTAM is not evidence of no interference.
 - **Situational-awareness tool. Not a navigation aid, not for operational flight use.**
 
 ## Built on
 
-Python · Starlette · live community ADS-B feeds · **SerpApi** for live corroboration · optional OpenAI-compatible model endpoint for narrative · SHA-256 hash-chained evidence ledger
+Python · Starlette · live community ADS-B feeds · **NOAA SWPC** space weather · **FAA NOTAM API** · **Nutrient DWS** for document generation · optional OpenAI-compatible model endpoint for narrative · SHA-256 hash-chained evidence ledger
 
 ---
 

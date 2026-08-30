@@ -69,10 +69,14 @@ class Config:
     # cap considerably. Note: OpenSky publishes no NIC/NACp, so integrity
     # detection is degraded whenever it is the active source.
     # OpenSky OAuth2 (client credentials) — the supported path since 2025.
-    # Open-source corroboration (SerpApi). Optional: without it the
-    # system still watches and detects, findings are just UNCORROBORATED.
-    SERPAPI_KEY: str = os.getenv("SERPAPI_KEY", "")
-    CORROBORATE_WINDOW: str = os.getenv("CORROBORATE_WINDOW", "w")
+    # Corroboration. NOAA space weather needs no key and is always on; the
+    # FAA NOTAM API is optional and only adds official interference notices.
+    # Document generation (Nutrient DWS). Without a key the report is
+    # served as printable HTML instead of PDF — the case is never withheld.
+    NUTRIENT_API_KEY: str = os.getenv("NUTRIENT_API_KEY", "")
+
+    FAA_CLIENT_ID: str = os.getenv("FAA_CLIENT_ID", "")
+    FAA_CLIENT_SECRET: str = os.getenv("FAA_CLIENT_SECRET", "")
 
     OPENSKY_CLIENT_ID: str = os.getenv("OPENSKY_CLIENT_ID", "")
     OPENSKY_CLIENT_SECRET: str = os.getenv("OPENSKY_CLIENT_SECRET", "")

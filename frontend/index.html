@@ -664,54 +664,57 @@ function renderTab(){
 /* ---------- BRIEF ---------- */
 function renderCase(el){
   el.innerHTML = '<div class="panel" style="padding:16px"><span class="spin"></span> '
-               + 'Building case — detections plus the open-source record…</div>';
+               + 'Building case — telemetry, natural-cause check and official record…</div>';
   apiGet('/api/region/'+S.rid+'/case').then(c=>{
-    const corr = c.corroboration || {};
-    const cites = corr.citations || [];
-    const STATUS = {
-      CORROBORATED:            ['#D9730D','Independently corroborated'],
-      BENIGN_EXPLANATION_FOUND:['#3AA564','Benign explanation published'],
-      CONTEXT_ONLY:            ['#E3AE00','Context only'],
-      UNCORROBORATED:          ['#6B7C70','No open reporting yet'],
-      UNCONFIGURED:            ['#6B7C70','Corroboration not configured']
+    const corr = c.corroboration||{}, sw = corr.space_weather||{};
+    const ST = {
+      NOTAM_CONFIRMED:         ['#B42318','Confirmed by published NOTAM'],
+      SPACE_WEATHER_CONFOUND:  ['#B54708','Natural cause possible — geomagnetic storm'],
+      SPACE_WEATHER_UNSETTLED: ['#B54708','Geomagnetic conditions unsettled'],
+      NATURAL_CAUSE_EXCLUDED:  ['#B42318','Natural cause excluded'],
+      UNCORROBORATED:          ['#667085','Corroboration unavailable']
     };
-    const [col,label] = STATUS[corr.status] || STATUS.UNCONFIGURED;
+    const [col,label] = ST[corr.status] || ST.UNCORROBORATED;
 
-    const findings = (c.findings||[]).slice(0,8).map(f=>
-      '<div class="feed-row" style="cursor:default">'
-      + '<div><b>'+esc(f.aircraft)+'</b> — '+esc(f.finding||'')
-      + '<div class="cap" style="margin-top:3px">'+esc(f.detail||'')+'</div></div>'
+    const rows = (c.findings||[]).slice(0,8).map(f=>
+      '<div class="feed-row" style="cursor:default"><div><b>'+esc(f.aircraft)+'</b> — '
+      + esc(f.finding||'')+'<div class="cap" style="margin-top:3px">'+esc(f.detail||'')+'</div></div>'
       + '<div style="text-align:right"><b style="color:'+gaugeColor(f.anomaly||0)+'">'
       + (f.anomaly||0)+'</b><div class="cap">'+esc(f.band||'')+'</div></div></div>'
     ).join('') || '<div class="cap" style="padding:8px 0">No detector fired in this window.</div>';
 
-    const sources = cites.length ? cites.map(x=>
-      '<div class="feed-row" style="cursor:default">'
-      + '<div><a href="'+esc(x.link)+'" target="_blank" rel="noopener">'+esc(x.title)+'</a>'
-      + '<div class="cap" style="margin-top:3px">'+esc(x.snippet||'')+'</div></div>'
-      + '<div style="text-align:right"><span class="cap">'+esc(x.bucket)+'</span>'
-      + (x.authoritative?'<div class="cap">authority</div>':'')+'</div></div>'
-    ).join('')
-    : '<div class="cap" style="padding:8px 0">'+esc(corr.summary||'')+'</div>';
+    const alerts = (sw.alerts||[]).slice(0,3).map(a=>
+      '<div class="cap" style="padding:5px 0;border-bottom:1px solid var(--border)">'
+      + esc(a.issued)+' — '+esc(String(a.message).slice(0,150))+'</div>').join('')
+      || '<div class="cap" style="padding:5px 0">No GNSS-relevant alerts in 48h.</div>';
+
+    const notams = (corr.notams||[]).map(n=>
+      '<div class="cap" style="padding:5px 0"><b>'+esc(n.id)+'</b> '+esc(n.text)+'</div>').join('')
+      || '<div class="cap" style="padding:5px 0">No interference NOTAMs retrieved.</div>';
 
     el.innerHTML =
       '<div class="panel" style="padding:16px">'
       + '<div class="cap">CASE '+esc(c.case_id||'')+' · '+esc((c.region||{}).name||'')+'</div>'
       + '<div style="font-size:17px;font-weight:650;margin:8px 0 4px">'+esc(c.recommended_action||'')+'</div>'
-      + '<div class="cap">'+ (c.aircraft_observed||0) +' aircraft observed · '
-      + (c.aircraft_flagged||0) +' flagged</div>'
-      + '<h3 class="sec" style="margin-top:16px">What the telemetry shows</h3>'+findings
-      + '<h3 class="sec" style="margin-top:16px">What the open record says '
+      + '<div class="cap">'+(c.aircraft_observed||0)+' observed · '+(c.aircraft_flagged||0)+' flagged · '
+      + 'Kp '+esc(sw.kp)+' ('+esc(sw.condition)+')</div>'
+      + '<h3 class="sec" style="margin-top:16px">What the telemetry shows</h3>'+rows
+      + '<h3 class="sec" style="margin-top:16px">Natural-cause check '
       + '<span style="color:'+col+'">· '+esc(label)+'</span></h3>'
-      + '<div class="cap" style="margin-bottom:8px">'+esc(corr.summary||'')+'</div>'
-      + sources
-      + '<div class="cap" style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">'
-      + 'Detection is deterministic — no model in the decision path. '
-      + 'Corroboration moves the recommended action, never the finding.</div>'
+      + '<div class="cap" style="margin-bottom:6px">'+esc(corr.summary||'')+'</div>'+alerts
+      + '<h3 class="sec" style="margin-top:16px">Official record — NOTAMs</h3>'+notams
+      + '<div style="margin-top:16px;display:flex;gap:9px;flex-wrap:wrap">'
+      + '<a class="btn" href="'+API+'/api/region/'+S.rid+'/report?download=1">Download case report</a>'
+      + '<a class="btn ghost" href="'+API+'/api/region/'+S.rid+'/report" target="_blank">Preview document</a>'
+      + '</div>'
+      + '<div class="cap" style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">'
+      + 'Detection is deterministic — no model in the decision path. Corroboration adjusts the '
+      + 'recommended action; it can neither create nor suppress a detection.</div>'
       + '</div>';
   }).catch(e=>{ el.innerHTML='<div class="panel" style="padding:16px">Case unavailable — '+esc(e.message)+'</div>'; });
 }
 
+/* ---------- BRIEF ---------- */
 function renderBrief(el){
   el.innerHTML='<div class="panel" style="padding:18px"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">'+
     '<div><h2 class="sec">Live airspace brief</h2><div class="cap">synthesized by Grok from the live anomaly signals</div></div>'+

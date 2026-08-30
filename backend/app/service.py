@@ -466,23 +466,27 @@ def build_case(rid: str, recency: str | None = None) -> dict:
     corr = _corr.corroborate(
         region.get("name", rid),
         [f["finding"] or "" for f in findings],
-        recency or config.CORROBORATE_WINDOW,
+        icao_hint=region.get("icao_hint"),
     )
 
     # The verdict stays with the deterministic layer. Corroboration only moves
     # the recommended ACTION — it can never create or erase a detection.
     critical = [f for f in findings if f.get("band") == "critical"]
+    st = corr["status"]
     if not findings:
         action = "NO ACTION — no detector fired in this window."
-    elif corr["status"] == "BENIGN_EXPLANATION_FOUND":
-        action = ("REVIEW — a published benign cause may explain this. Read the "
-                  "exculpatory sources before escalating.")
-    elif corr["status"] == "CORROBORATED":
-        action = (f"ESCALATE — {len(findings)} aircraft reporting degraded navigation "
-                  f"integrity, independently corroborated by open reporting.")
+    elif st == "NOTAM_CONFIRMED":
+        action = (f"CONFIRMED — {len(findings)} aircraft degraded and an aviation "
+                  f"authority has already published interference NOTAMs here.")
+    elif st == "SPACE_WEATHER_CONFOUND":
+        action = ("HOLD — a geomagnetic storm can produce this signature on its own. "
+                  "Exclude the natural cause before calling it interference.")
+    elif critical and st == "NATURAL_CAUSE_EXCLUDED":
+        action = (f"ESCALATE — {len(critical)} aircraft at critical integrity loss with "
+                  f"geomagnetic conditions quiet. Natural causes do not explain this.")
     elif critical:
-        action = (f"MONITOR — {len(critical)} aircraft at critical integrity loss with no "
-                  f"open reporting yet. This is what early looks like.")
+        action = (f"MONITOR — {len(critical)} aircraft at critical integrity loss; "
+                  f"corroboration incomplete.")
     else:
         action = "MONITOR — detectors firing below critical; watch the trend."
 
@@ -499,7 +503,7 @@ def build_case(rid: str, recency: str | None = None) -> dict:
         "provenance": {
             "telemetry": "live ADS-B (community aggregators, multi-source failover)",
             "detection": "deterministic detectors — no model in the decision path",
-            "corroboration": ("SerpApi live web search"
-                              if corr["status"] != "UNCONFIGURED" else "not configured"),
+            "corroboration": "NOAA SWPC space weather" + (
+                " + FAA NOTAM" if corr.get("notams") else ""),
         },
     }

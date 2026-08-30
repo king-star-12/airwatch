@@ -1,31 +1,37 @@
-"""Open-source corroboration — the step that turns a detection into a case.
+"""Corroboration — the step that turns a detection into a case.
 
-The detectors in `detectors.py` decide, deterministically, that aircraft over a
-region are reporting degraded navigation integrity. That is a finding about
-*telemetry*. It is not yet a case, because it cannot answer the first question
-any reviewer asks: **is anyone else seeing this, and is there an innocent
-explanation?**
+`detectors.py` decides, deterministically, that aircraft over a region are
+reporting degraded navigation integrity. That is a finding about *telemetry*.
+It is not yet a case, because it cannot answer the question that decides what
+anyone does next:
 
-GNSS interference is unusual among anomalies in that the corroborating record is
-public and live: aviation authorities publish interference NOTAMs, EASA and the
-FAA issue safety bulletins, and incidents get reported within hours. So the
-corroboration layer runs a live web search, scoped to the region and the time
-window of the finding, and sorts what it gets back into three buckets:
+    Is this interference, or is there a natural explanation?
 
-    CORROBORATING  independent reporting consistent with interference here
-    EXCULPATORY    a benign published cause — an announced exercise, a scheduled
-                   GNSS test, a known outage. This is the bucket that matters
-                   most, because an investigation that cannot clear a region is
-                   just an alarm.
-    CONTEXT        background on the area, neither confirming nor clearing
+That distinction matters more here than it looks. GNSS integrity does not only
+degrade because someone is jamming it. **Space weather degrades it too.** A
+geomagnetic storm drives ionospheric scintillation that scatters the L-band
+signals GPS depends on, and a solar radio burst can raise the noise floor across
+whole continents at once. Both produce exactly the signature this system watches
+for — low NIC, low NACp, on many aircraft, over a wide area.
 
-Nothing here decides anything. Classification is keyword-deterministic and the
-verdict still comes from the detectors; this module only attaches *what the open
-record says*, with citations, so a human can act on the finding or dismiss it.
+A monitor that skips that check will confidently report jamming every time the
+sun is active. So before Airwatch escalates anything, it asks the sun first.
 
-Search provider: SerpApi (structured, real-time, no scraping). Absent an API key
-the module degrades to UNCORROBORATED and the rest of the system is unaffected —
-the same posture as every other optional dependency in this codebase.
+Two sources, in order of what they can rule out:
+
+    SPACE WEATHER   NOAA SWPC — planetary Kp index and live alerts. Free, no
+                    key, global. This is the *exculpatory* check: if a
+                    geomagnetic storm is running, degraded integrity may be
+                    natural and the case should say so.
+    NOTAMs          FAA NOTAM API — the authoritative operational record.
+                    Optional (needs a free key); when present it is the
+                    strongest *corroborating* evidence available, because it
+                    means an aviation authority has already published the
+                    interference.
+
+Nothing here decides anything. The verdict stays with the detectors; this module
+attaches what the physical and official record says, with sources, so a human
+can escalate or dismiss with the reason attached.
 """
 from __future__ import annotations
 
@@ -40,158 +46,164 @@ from .config import config
 
 log = logging.getLogger("corroborate")
 
-SERPAPI = "https://serpapi.com/search"
+SWPC_KP = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
+SWPC_ALERTS = "https://services.swpc.noaa.gov/products/alerts.json"
+FAA_NOTAM = "https://external-api.faa.gov/notamapi/v1/notams"
 _TIMEOUT = httpx.Timeout(20.0, connect=8.0)
 
-# Terms that mark a result as independently reporting interference.
-_CORROBORATE = (
-    "gps jamming", "gps spoofing", "gnss jamming", "gnss spoofing",
-    "gps interference", "gnss interference", "navigation interference",
-    "loss of gnss", "position unreliable", "rfi", "jammed",
-)
+# Kp is the planetary geomagnetic index, 0–9. NOAA's G-scale starts at Kp 5;
+# scintillation strong enough to affect GNSS integrity is generally reported
+# from about Kp 5 upward, with Kp 4 worth flagging as unsettled rather than
+# clean. These thresholds are deliberately conservative: over-calling a storm
+# would hand every real jamming event a free excuse.
+KP_STORM = 5.0
+KP_UNSETTLED = 4.0
 
-# Terms that mark a published, benign explanation. Deliberately narrow: a false
-# "exculpatory" is far more costly than a missed one, because it clears a region
-# that may genuinely be degraded.
-_EXCULPATE = (
-    "scheduled gps test", "gps testing", "planned exercise", "military exercise",
-    "notam cancelled", "exercise notam", "training exercise", "gps interference testing",
-)
-
-# Authorities whose word carries more weight than a news aggregator.
-_AUTHORITATIVE = (
-    "faa.gov", "easa.europa.eu", "eurocontrol.int", "icao.int", "notams.aim.faa.gov",
-    "ntsb.gov", "gpsjam.org", "flightradar24.com", "ainonline.com", "aviationweek.com",
-    "opsgroup.aero", "skybrary.aero",
-)
+# SWPC message codes that matter to GNSS: geomagnetic storms (K-index warnings/
+# alerts) and solar radio blackouts (R-scale), which raise the L-band noise floor.
+_GNSS_RELEVANT = re.compile(
+    r"(geomagnetic|K-index|Kp|radio blackout|X-ray|solar radiation storm|"
+    r"proton event|scintillation)", re.I)
 
 
-def configured() -> bool:
-    return bool(getattr(config, "SERPAPI_KEY", ""))
-
-
-def _bucket(text: str) -> str:
-    t = text.lower()
-    if any(k in t for k in _EXCULPATE):
-        return "exculpatory"
-    if any(k in t for k in _CORROBORATE):
-        return "corroborating"
-    return "context"
-
-
-def _authoritative(link: str) -> bool:
-    return any(d in (link or "").lower() for d in _AUTHORITATIVE)
-
-
-def _queries(region_name: str, findings: list[str]) -> list[str]:
-    """Two angles, deliberately: confirm, and try to clear.
-
-    Searching only for confirmation is how an investigation talks itself into a
-    conclusion. The second query exists to find the reason this is *nothing*.
-    """
-    place = re.sub(r"\s*·.*$", "", region_name).strip()
-    qs = [f"{place} GPS jamming OR GNSS interference aircraft"]
-    if any("spoof" in f.lower() or "jump" in f.lower() for f in findings):
-        qs.append(f"{place} GPS spoofing aircraft position")
-    qs.append(f"{place} NOTAM GPS interference OR military exercise")
-    return qs
-
-
-def _search(query: str, recency: str = "w") -> list[dict[str, Any]]:
-    """One SerpApi call. `recency` maps to Google's tbs date filter."""
-    params = {
-        "engine": "google",
-        "q": query,
-        "api_key": config.SERPAPI_KEY,
-        "num": 10,
-        "tbs": f"qdr:{recency}",   # d/w/m — findings are time-scoped by nature
-        "hl": "en",
-    }
+def _get_json(url: str, **kw) -> Any:
     try:
-        r = httpx.get(SERPAPI, params=params, timeout=_TIMEOUT)
+        r = httpx.get(url, timeout=_TIMEOUT,
+                      headers={"User-Agent": "airwatch/1.0"}, **kw)
         if r.status_code != 200:
-            log.warning("serpapi HTTP %s", r.status_code)
-            return []
-        data = r.json()
-    except Exception as e:                                   # noqa: BLE001
-        log.warning("serpapi error: %s", type(e).__name__)
-        return []
+            log.warning("%s -> HTTP %s", url.split("/")[2], r.status_code)
+            return None
+        return r.json()
+    except Exception as e:                                    # noqa: BLE001
+        log.warning("%s -> %s", url.split("/")[2], type(e).__name__)
+        return None
 
-    out: list[dict[str, Any]] = []
-    # Google News boxes carry the freshest signal; organic results carry the
-    # authorities. Both are worth reading.
-    for item in (data.get("top_stories") or []) + (data.get("organic_results") or []):
-        title = item.get("title") or ""
-        snippet = item.get("snippet") or item.get("source") or ""
-        link = item.get("link") or ""
-        if not (title and link):
-            continue
-        out.append({
-            "title": title[:180],
-            "snippet": str(snippet)[:300],
-            "link": link,
-            "source": (item.get("source") or item.get("displayed_link") or "")[:80],
-            "date": item.get("date") or "",
-            "bucket": _bucket(f"{title} {snippet}"),
-            "authoritative": _authoritative(link),
-        })
+
+def _space_weather() -> dict[str, Any]:
+    """Current geomagnetic state and any live GNSS-relevant SWPC alerts."""
+    out: dict[str, Any] = {"available": False, "kp": None, "condition": "unknown",
+                           "alerts": [], "source": "NOAA SWPC"}
+
+    kp_rows = _get_json(SWPC_KP)
+    if isinstance(kp_rows, list) and kp_rows:
+        # Rows arrive oldest-first, either as dicts or as header+list rows.
+        last = kp_rows[-1]
+        kp = None
+        if isinstance(last, dict):
+            kp = last.get("Kp")
+            when = last.get("time_tag")
+        else:
+            try:
+                kp, when = float(last[1]), last[0]
+            except (IndexError, TypeError, ValueError):
+                when = None
+        try:
+            kp = float(kp) if kp is not None else None
+        except (TypeError, ValueError):
+            kp = None
+        if kp is not None:
+            out.update(available=True, kp=round(kp, 2), observed_at=when)
+            out["condition"] = ("storm" if kp >= KP_STORM
+                                else "unsettled" if kp >= KP_UNSETTLED else "quiet")
+
+    alerts = _get_json(SWPC_ALERTS)
+    if isinstance(alerts, list):
+        fresh = []
+        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48)
+        for a in alerts[:60]:
+            msg = str(a.get("message", ""))
+            if not _GNSS_RELEVANT.search(msg):
+                continue
+            raw = str(a.get("issue_datetime", ""))[:19]
+            try:
+                issued = dt.datetime.fromisoformat(raw).replace(tzinfo=dt.timezone.utc)
+                if issued < cutoff:
+                    continue
+            except ValueError:
+                pass
+            headline = " ".join(msg.split())[:200]
+            fresh.append({"issued": raw, "message": headline})
+        out["alerts"] = fresh[:4]
     return out
 
 
-def corroborate(region_name: str, findings: list[str],
-                recency: str = "w", max_items: int = 8) -> dict[str, Any]:
-    """Attach the open-source record to a detector finding.
+def _notams(icao_hint: str | None) -> list[dict[str, Any]]:
+    """GPS-interference NOTAMs for a location, when a FAA key is configured."""
+    key_id = getattr(config, "FAA_CLIENT_ID", "")
+    key_secret = getattr(config, "FAA_CLIENT_SECRET", "")
+    if not (key_id and key_secret and icao_hint):
+        return []
+    data = _get_json(
+        f"{FAA_NOTAM}?icaoLocation={icao_hint}&pageSize=30",
+        headers={"client_id": key_id, "client_secret": key_secret,
+                 "User-Agent": "airwatch/1.0"})
+    items = ((data or {}).get("items") or []) if isinstance(data, dict) else []
+    out = []
+    for it in items:
+        core = (((it.get("properties") or {}).get("coreNOTAMData") or {})
+                .get("notam") or {})
+        text = str(core.get("text", ""))
+        if not re.search(r"\bGPS\b|\bGNSS\b|interference|unreliable", text, re.I):
+            continue
+        out.append({"id": core.get("number"), "text": " ".join(text.split())[:220],
+                    "effective": core.get("effectiveStart"),
+                    "location": core.get("location")})
+    return out[:5]
 
-    Returns a citation block for the evidence ledger. Never raises: a search
-    failure downgrades the case to UNCORROBORATED rather than breaking the watch.
+
+def configured() -> bool:
+    """Space weather needs no key, so corroboration is always available."""
+    return True
+
+
+def corroborate(region_name: str, findings: list[str],
+                icao_hint: str | None = None, **_) -> dict[str, Any]:
+    """Attach the physical and official record to a detector finding.
+
+    Never raises: if every source is unreachable the case degrades to
+    UNCORROBORATED rather than breaking the watch.
     """
     stamp = dt.datetime.now(dt.timezone.utc).isoformat()
-    if not configured():
-        return {"status": "UNCONFIGURED", "checked_at": stamp, "queries": [],
-                "citations": [], "summary": "No search provider configured; "
-                "finding rests on telemetry alone."}
+    space = _space_weather()
+    notams = _notams(icao_hint)
 
-    seen: set[str] = set()
-    citations: list[dict[str, Any]] = []
-    queries = _queries(region_name, findings)
-    for q in queries:
-        for item in _search(q, recency):
-            if item["link"] in seen:
-                continue
-            seen.add(item["link"])
-            item["query"] = q
-            citations.append(item)
+    kp = space.get("kp")
+    storm = space.get("condition") == "storm"
+    unsettled = space.get("condition") == "unsettled"
 
-    # Authorities first, then anything that actually classified, then the rest.
-    citations.sort(key=lambda c: (not c["authoritative"], c["bucket"] == "context"))
-    citations = citations[:max_items]
-
-    corro = [c for c in citations if c["bucket"] == "corroborating"]
-    excul = [c for c in citations if c["bucket"] == "exculpatory"]
-
-    if excul:
-        status = "BENIGN_EXPLANATION_FOUND"
-        summary = (f"{len(excul)} published source(s) offer a benign cause "
-                   f"(exercise or scheduled test). Review before escalating.")
-    elif corro:
-        status = "CORROBORATED"
-        summary = (f"{len(corro)} independent source(s) report interference in "
-                   f"this area within the window.")
-    elif citations:
-        status = "CONTEXT_ONLY"
-        summary = "No direct reporting found; only background context."
+    if notams:
+        status = "NOTAM_CONFIRMED"
+        summary = (f"{len(notams)} published NOTAM(s) reference GPS/GNSS "
+                   f"interference for this area — the authorities have it on record.")
+    elif storm:
+        status = "SPACE_WEATHER_CONFOUND"
+        summary = (f"Geomagnetic storm in progress (Kp {kp}). Ionospheric "
+                   f"scintillation can degrade GNSS integrity on its own — treat "
+                   f"this as a natural cause until it is excluded.")
+    elif unsettled:
+        status = "SPACE_WEATHER_UNSETTLED"
+        summary = (f"Geomagnetic conditions unsettled (Kp {kp}). Not enough to "
+                   f"explain a localised cluster, but worth noting in the record.")
+    elif space.get("available"):
+        status = "NATURAL_CAUSE_EXCLUDED"
+        summary = (f"Geomagnetic conditions quiet (Kp {kp}) with no GNSS-relevant "
+                   f"space-weather alerts. A natural cause does not explain this.")
     else:
         status = "UNCORROBORATED"
-        summary = ("No open-source reporting found. The finding rests on "
-                   "telemetry alone — which is normal for a signal detected early.")
+        summary = ("Corroboration sources unreachable; the finding rests on "
+                   "telemetry alone.")
 
     return {
         "status": status,
         "checked_at": stamp,
-        "window": {"d": "24h", "w": "7d", "m": "30d"}.get(recency, recency),
-        "queries": queries,
-        "counts": {"corroborating": len(corro), "exculpatory": len(excul),
-                   "total": len(citations)},
-        "citations": citations,
         "summary": summary,
+        "space_weather": space,
+        "notams": notams,
+        "sources": [
+            {"name": "NOAA Space Weather Prediction Center",
+             "url": "https://services.swpc.noaa.gov", "role": "natural-cause check",
+             "used": bool(space.get("available"))},
+            {"name": "FAA NOTAM API", "url": "https://api.faa.gov",
+             "role": "official interference notices", "used": bool(notams)},
+        ],
     }

@@ -9,11 +9,11 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse as _JSONResponse
+from starlette.responses import JSONResponse as _JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import adsb, service
+from . import adsb, report as _report, service
 from .config import config
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -94,6 +94,17 @@ async def case(request: Request):
     return JSONResponse(await _run(service.build_case, _rid(request), recency))
 
 
+async def report(request: Request):
+    """The case as a portable, integrity-stamped document."""
+    case = await _run(service.build_case, _rid(request))
+    body, media, filename = await _run(_report.build, case)
+    disp = "attachment" if request.query_params.get("download") else "inline"
+    return Response(body, media_type=media, headers={
+        "Content-Disposition": f'{disp}; filename="{filename}"',
+        "Cache-Control": "no-store",
+    })
+
+
 async def brief(request: Request):
     return JSONResponse(await _run(service.brief_region, _rid(request)))
 
@@ -117,6 +128,7 @@ async def ask(request: Request):
 
 routes = [
     Route("/api/region/{rid}/case", case),
+    Route("/api/region/{rid}/report", report),
     Route("/api/health", health),
     Route("/api/regions", regions_list),
     Route("/api/theatre", theatre),
