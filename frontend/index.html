@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>◆ Airwatch — live airspace-integrity monitor</title>
+<script>window.AIRSPACE_API="https://faultline-api.kindriver-8303c630.centralindia.azurecontainerapps.io";</script>
+<style>
+  :root{
+    --bg:#F6FAF6; --panel:#FFFFFF; --border:#E3EDE5; --radius:14px;
+    --shadow:0 1px 3px rgba(20,50,30,.06);
+    --ink:#16231B; --ink2:#5B6A61;
+    --green:#2E8B57; --green-l:#E9F6EE;
+    --normal:#3AA564; --normal-f:#E9F6EE;
+    --elevated:#E3AE00; --elevated-f:#FFF6D6;
+    --critical:#D9730D; --critical-f:#FCE7CE;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;max-width:100%;overflow-x:hidden}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--green)}
+  button{font-family:inherit; cursor:pointer}
+  ::selection{background:#CFEBD9}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:40; background:rgba(246,250,246,.92);
+    backdrop-filter:saturate(1.1) blur(8px);
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+    padding:11px 22px;
+  }
+  .brand{display:flex; flex-direction:column; margin-right:4px}
+  .wordmark{font-size:18px; font-weight:700; letter-spacing:.2px; color:var(--ink)}
+  .wordmark .dia{color:var(--green)}
+  .tagline{font-size:11.5px; color:var(--ink2)}
+  .pills{display:flex; gap:8px; flex-wrap:wrap; flex:1 1 auto; min-width:180px}
+  .pill{
+    border:1px solid var(--border); background:var(--panel); color:var(--ink);
+    border-radius:999px; padding:6px 12px; font-size:12.5px; font-weight:500;
+    display:inline-flex; align-items:center; gap:7px; transition:.14s; white-space:nowrap;
+  }
+  .pill:hover{border-color:#BFD9C7; box-shadow:var(--shadow)}
+  .pill.active{background:var(--green-l); border-color:#9FD3B2; color:#14432B}
+  .pill .dot{width:8px; height:8px; border-radius:50%; background:#CBD8CE}
+  .pill .ix{font-family:var(--mono); font-size:11px; color:var(--ink2); font-weight:600}
+  .pill.active .ix{color:#14432B}
+  .live{display:flex; align-items:center; gap:9px; font-size:12px; color:var(--ink2); white-space:nowrap}
+  .livedot{width:9px; height:9px; border-radius:50%; background:#C6D3CB; box-shadow:0 0 0 0 rgba(58,165,100,.5)}
+  .livedot.on{background:var(--normal); animation:pulse 2s infinite}
+  .livedot.stale{background:var(--elevated); animation:none}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(58,165,100,.45)}70%{box-shadow:0 0 0 7px rgba(58,165,100,0)}100%{box-shadow:0 0 0 0 rgba(58,165,100,0)}}
+  .refnote{font-size:10.5px; color:#9AA99F; border:1px solid var(--border); border-radius:999px; padding:2px 8px}
+
+  /* ---------- layout ---------- */
+  main{max-width:1320px; margin:0 auto; padding:20px 22px 40px}
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
+  .muted{color:var(--ink2)}
+  .mono{font-family:var(--mono)}
+  h2.sec{font-size:12.5px; font-weight:600; letter-spacing:.3px; text-transform:uppercase; color:var(--ink2); margin:0}
+  .cap{font-size:11.5px; color:var(--ink2)}
+  .hidden{display:none !important}
+
+  /* boot */
+  .boot{display:flex; align-items:center; justify-content:center; gap:12px; padding:70px 20px; color:var(--ink2)}
+
+  /* KPI */
+  .kpi-row{display:grid; grid-template-columns:1.25fr 1fr 1fr 1fr; gap:14px}
+  .tile{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:15px 17px}
+  .tile .lab{font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink2); font-weight:600}
+  .tile .big{font-size:30px; font-weight:700; letter-spacing:-.5px; margin-top:2px; line-height:1.05}
+  .tile .sub{font-size:11.5px; color:var(--ink2)}
+  .gauge-tile{display:flex; align-items:center; gap:14px}
+  .gauge-tile .g-meta{display:flex; flex-direction:column}
+  .substats{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px}
+  .sstat{border:1px solid var(--border); background:var(--panel); border-radius:10px; padding:7px 13px; display:flex; flex-direction:column; min-width:84px}
+  .sstat b{font-size:17px; font-weight:700; letter-spacing:-.3px}
+  .sstat span{font-size:10.5px; color:var(--ink2); text-transform:uppercase; letter-spacing:.3px}
+
+  /* ops grid: map + feed */
+  .opsgrid{display:grid; grid-template-columns:minmax(0,1.68fr) minmax(280px,1fr); gap:14px; align-items:start; margin-top:14px}
+  .panel-h{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:13px 16px; border-bottom:1px solid var(--border); flex-wrap:wrap}
+  .map-wrap{position:relative; padding:8px}
+  canvas#map{display:block; width:100%; border-radius:10px; background:#FBFDFB; cursor:crosshair}
+  .maplegend{display:flex; gap:14px; flex-wrap:wrap; padding:9px 16px 12px; font-size:11px; color:var(--ink2)}
+  .maplegend i{display:inline-block; width:9px; height:9px; border-radius:2px; vertical-align:middle; margin-right:5px}
+  .maplegend .zdot{width:11px; height:11px; border-radius:50%; background:rgba(217,115,13,.18); border:1px solid rgba(217,115,13,.6)}
+  .mtip{position:absolute; pointer-events:none; background:#16231B; color:#fff; font-size:11px; padding:7px 10px; border-radius:8px; opacity:0; transition:opacity .1s; z-index:20; max-width:230px; box-shadow:0 4px 14px rgba(0,0,0,.18)}
+  .mtip .cs{font-weight:700; font-size:12px}
+  .mtip .p{font-family:var(--mono); font-size:10px; opacity:.8}
+  .mtip .fl{margin-top:3px; color:#FFD9A8}
+
+  /* feed */
+  .feed-list{max-height:592px; overflow-y:auto; padding:8px 10px 10px}
+  .feed-row{display:grid; grid-template-columns:1fr auto; gap:6px 10px; align-items:start; padding:10px 11px; border:1px solid var(--border); border-radius:11px; margin-bottom:7px; cursor:pointer; transition:.12s; background:var(--panel)}
+  .feed-row:hover{border-color:#9FD3B2; background:#FBFEFC}
+  .feed-row.sel{border-color:var(--green); background:var(--green-l)}
+  .feed-row .cs{font-weight:600; font-size:13.5px; display:flex; align-items:center; gap:7px}
+  .feed-row .cs .hexs{font-family:var(--mono); font-size:10.5px; color:var(--ink2); font-weight:500}
+  .feed-row .meta{font-size:11.5px; color:var(--ink2); margin-top:2px}
+  .feed-row .an{font-size:20px; font-weight:700; letter-spacing:-.5px; text-align:right; line-height:1}
+  .feed-row .anl{font-size:9.5px; color:var(--ink2); text-transform:uppercase; letter-spacing:.3px; text-align:right}
+  .flags{display:flex; gap:4px; flex-wrap:wrap; margin-top:6px; grid-column:1 / -1}
+  .fbadge{font-size:9.5px; font-weight:700; letter-spacing:.3px; padding:2px 6px; border-radius:5px; border:1px solid transparent}
+  .bandchip{font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; padding:2px 8px; border-radius:999px; display:inline-block}
+  .emptyfeed{padding:26px 14px; text-align:center; color:var(--ink2); font-size:12.5px}
+
+  /* spark */
+  .spark-panel{margin-top:14px; padding:14px 16px}
+  .spark-head{display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:6px}
+  .spark-val{font-size:12px; color:var(--ink2)}
+  .spark-val b{font-size:15px; color:var(--ink); letter-spacing:-.3px}
+
+  /* tabs */
+  .tabs{display:flex; gap:4px; margin:22px 0 14px; border-bottom:1px solid var(--border); flex-wrap:wrap}
+  .tab{border:none; background:none; padding:9px 15px; font-size:13px; font-weight:600; color:var(--ink2); border-bottom:2px solid transparent; margin-bottom:-1px}
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--green); border-bottom-color:var(--green)}
+
+  /* brief / markdown */
+  .doc{padding:22px 30px; max-width:820px; margin:0 auto}
+  .doc h1{font-size:22px; margin:.2em 0 .4em; letter-spacing:-.3px}
+  .doc h2{font-size:16px; margin:1.1em 0 .4em; border-bottom:1px solid var(--border); padding-bottom:4px}
+  .doc h3{font-size:14px; margin:1em 0 .3em}
+  .doc p{margin:.5em 0; color:#243329}
+  .doc ul,.doc ol{margin:.4em 0 .8em; padding-left:22px}
+  .doc li{margin:.25em 0}
+  .doc code{font-family:var(--mono); background:var(--green-l); padding:1px 5px; border-radius:5px; font-size:12.5px}
+  .modelbadge{font-size:10.5px; font-weight:600; color:var(--green); background:var(--green-l); border:1px solid #C4E5D0; padding:3px 9px; border-radius:999px; display:inline-block}
+
+  /* evidence */
+  table.ev{width:100%; border-collapse:collapse; font-size:12.5px}
+  table.ev th{text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.3px; color:var(--ink2); padding:8px 10px; border-bottom:1px solid var(--border)}
+  table.ev td{padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top}
+  table.ev tr:hover td{background:#FBFEFC}
+  .kindchip{font-size:10px; font-weight:600; padding:2px 7px; border-radius:5px; background:var(--green-l); color:#1E5C3A}
+  .intact{display:inline-flex; align-items:center; gap:7px; font-weight:600; padding:8px 14px; border-radius:10px; font-size:13px}
+  .intact.ok{background:var(--normal-f); color:#1E5C3A; border:1px solid #A7D9BA}
+  .intact.bad{background:var(--critical-f); color:#8A4A08; border:1px solid #EBC08C}
+  .intact.info{background:#F1F5F2; color:#4A5A50; border:1px solid var(--border)}
+
+  /* ask */
+  .ask-box{display:flex; gap:8px; margin-bottom:14px}
+  .ask-box input{flex:1; border:1px solid var(--border); border-radius:10px; padding:10px 13px; font-size:13.5px; outline:none}
+  .ask-box input:focus{border-color:#9FD3B2}
+  .tools{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px}
+  .toolchip{font-family:var(--mono); font-size:11px; background:#F1F7F3; border:1px solid var(--border); padding:3px 9px; border-radius:6px; color:#2C4A38}
+
+  /* buttons */
+  .btn{border:1px solid var(--green); background:var(--green); color:#fff; border-radius:9px; padding:8px 15px; font-size:12.5px; font-weight:600; transition:.14s}
+  .btn:hover{background:#256F45}
+  .btn.ghost{background:var(--panel); color:var(--green)}
+  .btn.ghost:hover{background:var(--green-l)}
+  .btn:disabled{opacity:.5; cursor:default}
+
+  /* drawer */
+  .drawer{position:fixed; top:0; right:0; height:100%; width:min(440px,95vw); background:var(--panel); border-left:1px solid var(--border); box-shadow:-6px 0 24px rgba(20,50,30,.10); z-index:60; overflow-y:auto; transform:translateX(100%); transition:transform .22s ease}
+  .drawer.open{transform:translateX(0)}
+  .drawer-in{padding:20px 22px}
+  .drawer .close{position:absolute; top:14px; right:16px; border:none; background:none; font-size:22px; color:var(--ink2); line-height:1}
+  .overlay{position:fixed; inset:0; background:rgba(20,40,28,.18); z-index:50; opacity:0; pointer-events:none; transition:.2s}
+  .overlay.show{opacity:1; pointer-events:auto}
+  .an-big{font-size:50px; font-weight:800; letter-spacing:-1.5px; line-height:1}
+  .metrics{display:grid; grid-template-columns:1fr 1fr; gap:7px 16px; margin-top:12px; font-size:12.5px}
+  .metrics div{display:flex; justify-content:space-between; border-bottom:1px dashed var(--border); padding-bottom:4px}
+  .metrics b{font-weight:600}
+  .metrics b.amber{color:var(--critical)}
+  .detrow{border:1px solid var(--border); border-radius:10px; padding:9px 11px; margin:7px 0; background:#FBFDFB}
+  .detrow .dh{display:flex; align-items:center; gap:8px}
+  .detrow .dd{font-size:12px; color:#3a4b41; margin-top:4px}
+  .causechip{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; padding:4px 11px; border-radius:999px; display:inline-block}
+
+  /* spinner + msg */
+  .spin{width:16px; height:16px; border:2px solid #CFE6D8; border-top-color:var(--green); border-radius:50%; display:inline-block; animation:sp .7s linear infinite; vertical-align:middle}
+  .spin.lg{width:30px; height:30px; border-width:3px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .msg{font-size:12.5px; padding:9px 13px; border-radius:9px; margin:8px 0}
+  .msg.err{background:var(--critical-f); color:#8A4A08; border:1px solid #EBC08C}
+  .inline-load{display:flex; align-items:center; gap:9px; color:var(--ink2); font-size:13px; padding:16px 6px}
+  #globalMsg{position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:70; max-width:520px; width:calc(100% - 40px)}
+
+  @media(max-width:900px){
+    .kpi-row{grid-template-columns:1fr 1fr}
+    .opsgrid{grid-template-columns:1fr}
+    .feed-list{max-height:420px}
+  }
+  @media(max-width:560px){ .kpi-row{grid-template-columns:1fr 1fr} .metrics{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="wordmark"><span class="dia">◆</span> Airwatch</div>
+      <div class="tagline">The truth in the airspace — live.</div>
+    </div>
+    <div class="pills" id="pills"></div>
+    <div class="live">
+      <span class="livedot" id="liveDot"></span>
+      <span id="agoText">connecting…</span>
+      <span class="refnote">auto-refresh 12s</span>
+    </div>
+  </header>
+
+  <div id="globalMsg"></div>
+
+  <main>
+    <!-- boot -->
+    <div id="boot" class="panel boot"><span class="spin lg"></span> Acquiring live airspace…</div>
+
+    <!-- dashboard -->
+    <section id="dashboard" class="hidden">
+      <div class="kpi-row" id="kpiRow"></div>
+      <div class="substats" id="subStats"></div>
+
+      <div class="opsgrid">
+        <!-- left: map + spark -->
+        <div>
+          <div class="panel">
+            <div class="panel-h">
+              <div>
+                <h2 class="sec">Live airspace</h2>
+                <div class="cap" id="mapCap">—</div>
+              </div>
+              <span class="bandchip" id="mapBand"></span>
+            </div>
+            <div class="map-wrap">
+              <canvas id="map" width="900" height="520"></canvas>
+              <div class="mtip" id="mapTip"></div>
+            </div>
+            <div class="maplegend">
+              <span><i style="background:var(--normal)"></i>normal</span>
+              <span><i style="background:var(--elevated)"></i>elevated</span>
+              <span><i style="background:var(--critical)"></i>critical</span>
+              <span><span class="zdot"></span> GPS-interference zone</span>
+              <span class="muted">▲ = aircraft (heading) · click to inspect</span>
+            </div>
+          </div>
+
+          <div class="panel spark-panel">
+            <div class="spark-head">
+              <div>
+                <h2 class="sec">Region anomaly index — live</h2>
+                <div class="cap">rolling anomaly index over recent polls</div>
+              </div>
+              <div class="spark-val" id="sparkVal"></div>
+            </div>
+            <div id="sparkChart"></div>
+          </div>
+        </div>
+
+        <!-- right: feed -->
+        <div class="panel">
+          <div class="panel-h">
+            <div>
+              <h2 class="sec">Anomaly feed</h2>
+              <div class="cap">most anomalous aircraft · emergencies first</div>
+            </div>
+          </div>
+          <div class="feed-list" id="feed"></div>
+        </div>
+      </div>
+
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="case">Case</button>
+        <button class="tab" data-tab="brief">Brief</button>
+        <button class="tab" data-tab="evidence">Evidence</button>
+        <button class="tab" data-tab="ask">Ask</button>
+      </nav>
+      <div id="tabContent"></div>
+    </section>
+  </main>
+
+  <!-- aircraft drawer -->
+  <div class="overlay" id="overlay"></div>
+  <aside class="drawer" id="drawer"><div class="drawer-in" id="drawerIn"></div></aside>
+
+<script>
+(function(){
+"use strict";
+const API = (window.AIRSPACE_API || '');
+const $ = (s,r)=> (r||document).querySelector(s);
+
+/* ---------- state ---------- */
+const S = {
+  regions:[], rid:null, def:null,
+  live:null, history:null,
+  acByHex:{}, selected:null,
+  tab:'case', evidence:null,
+  lastFetch:0, pollTimer:null, tickTimer:null,
+  invByHex:{}
+};
+
+/* ---------- colors / helpers ---------- */
+const BAND = {
+  normal:  {c:'#3AA564', f:'#E9F6EE', label:'Normal'},
+  elevated:{c:'#E3AE00', f:'#FFF6D6', label:'Elevated'},
+  critical:{c:'#D9730D', f:'#FCE7CE', label:'Critical'}
+};
+function band(b){ return BAND[b] || BAND.normal; }
+function gaugeColor(v){ return v>=75 ? '#D9730D' : v>=40 ? '#E3AE00' : '#3AA564'; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function num(n,d){ return (n==null||isNaN(n)) ? (d==null?'—':d) : n; }
+function pct(x){ return Math.round((x||0)*100); }
+function callsign(ac){ const f=(ac.flight||'').trim(); return f || (ac.hex||'').toUpperCase(); }
+
+const FLAG = {
+  gps:      {short:'GPS',   sev:'critical', label:'GPS integrity degraded'},
+  altdesync:{short:'ALT',   sev:'critical', label:'Baro/GNSS altitude desync'},
+  emergency:{short:'EMERG', sev:'critical', label:'Emergency squawk'},
+  jump:     {short:'JUMP',  sev:'critical', label:'Impossible position jump'},
+  holding:  {short:'HOLD',  sev:'elevated', label:'Holding / orbit'},
+  dark:     {short:'DARK',  sev:'elevated', label:'Position lost (dark)'}
+};
+function flagBadges(flags){
+  if(!flags||!flags.length) return '';
+  return '<div class="flags">'+flags.map(code=>{
+    const m=FLAG[code]; if(!m) return '';
+    const b=band(m.sev);
+    return '<span class="fbadge" style="background:'+b.f+';color:'+b.c+';border-color:'+b.c+'44" title="'+esc(m.label)+'">'+m.short+'</span>';
+  }).join('')+'</div>';
+}
+
+/* ---------- api ---------- */
+async function apiGet(path){
+  const r = await fetch(API+path);
+  if(!r.ok) throw new Error('GET '+path+' → '+r.status);
+  return r.json();
+}
+async function apiPost(path, body){
+  const r = await fetch(API+path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+  if(!r.ok) throw new Error('POST '+path+' → '+r.status);
+  return r.json();
+}
+function showMsg(text){
+  const el=$('#globalMsg');
+  el.innerHTML = '<div class="msg err">'+esc(text)+'</div>';
+  setTimeout(()=>{ if(el.firstChild) el.innerHTML=''; }, 6000);
+}
+
+/* ---------- regions / pills ---------- */
+async function loadRegions(){
+  const d = await apiGet('/api/regions');
+  S.regions = d.regions||[];
+  S.def = d.default || (S.regions[0]&&S.regions[0].id);
+  renderPills();
+}
+function renderPills(){
+  const el=$('#pills');
+  el.innerHTML = S.regions.map(r=>{
+    const b = r.band ? band(r.band) : {c:'#CBD8CE'};
+    const ix = r.index==null ? '—' : Math.round(r.index);
+    return '<button class="pill'+(r.id===S.rid?' active':'')+'" data-id="'+esc(r.id)+'">'+
+      '<span class="dot" style="background:'+b.c+'"></span>'+esc(r.name)+
+      '<span class="ix">'+ix+'</span></button>';
+  }).join('');
+  el.querySelectorAll('.pill').forEach(b=> b.addEventListener('click',()=>selectRegion(b.dataset.id)));
+}
+
+/* ---------- region lifecycle ---------- */
+async function selectRegion(rid){
+  if(!rid) return;
+  stopTimers();
+  S.rid=rid; S.selected=null; S.evidence=null; S.live=null; S.history=null;
+  closeDrawer();
+  $('#boot').classList.remove('hidden');
+  $('#dashboard').classList.add('hidden');
+  renderPills();
+  try{
+    await Promise.all([loadLive(), loadHistory()]);
+    $('#boot').classList.add('hidden');
+    $('#dashboard').classList.remove('hidden');
+    sizeCanvas(); drawMap();
+    setTab(S.tab); renderTab();
+    startTimers();
+  }catch(e){
+    $('#boot').innerHTML='<div class="msg err">Could not load '+esc(rid)+': '+esc(e.message)+'</div>';
+  }
+}
+
+async function loadLive(){
+  const d = await apiGet('/api/region/'+S.rid+'/live');
+  S.live=d; S.lastFetch=Date.now();
+  S.acByHex={};
+  (d.aircraft||[]).forEach(a=> S.acByHex[a.hex]=a);
+  (d.top||[]).forEach(a=> S.acByHex[a.hex]=a); // top carries dets
+  // reflect index onto the active pill
+  const rg=S.regions.find(r=>r.id===S.rid);
+  if(rg && d.index){ rg.index=d.index.anomaly; rg.band=d.index.band; }
+  renderPills();
+  renderKPIs(); renderFeed(); updateAgo();
+}
+async function loadHistory(){
+  S.history = await apiGet('/api/region/'+S.rid+'/history');
+  renderSpark();
+}
+async function refresh(){
+  try{
+    await loadLive();
+    drawMap();
+    await loadHistory();
+  }catch(e){
+    $('#liveDot').className='livedot stale';
+    $('#agoText').textContent='reconnecting…';
+  }
+}
+function startTimers(){
+  S.pollTimer=setInterval(refresh, 12000);
+  S.tickTimer=setInterval(updateAgo, 1000);
+}
+function stopTimers(){
+  if(S.pollTimer) clearInterval(S.pollTimer);
+  if(S.tickTimer) clearInterval(S.tickTimer);
+  S.pollTimer=S.tickTimer=null;
+}
+function updateAgo(){
+  if(!S.lastFetch){ return; }
+  const s=Math.max(0, Math.round((Date.now()-S.lastFetch)/1000));
+  const stale=s>30;
+  $('#liveDot').className='livedot '+(stale?'stale':'on');
+  $('#agoText').innerHTML='● updated '+s+'s ago';
+}
+
+/* ---------- KPIs ---------- */
+function renderKPIs(){
+  const idx=S.live.index||{}, zones=S.live.zones||[];
+  const b=band(idx.band);
+  $('#kpiRow').innerHTML =
+    '<div class="tile gauge-tile">'+ gaugeSVG(idx.anomaly||0) +
+      '<div class="g-meta"><span class="lab">Anomaly index</span>'+
+      '<span class="big" style="color:'+gaugeColor(idx.anomaly||0)+'">'+Math.round(idx.anomaly||0)+'</span>'+
+      '<span class="sub">'+b.label+' · 0 calm · 100 severe</span></div></div>'+
+    '<div class="tile"><span class="lab">Jammed jets</span>'+
+      '<div class="big" style="color:'+((idx.degraded||0)>0?'var(--critical)':'var(--ink)')+'">'+(idx.degraded||0)+'</div>'+
+      '<span class="sub">enroute · degraded GPS integrity</span></div>'+
+    '<div class="tile"><span class="lab">Interference zones</span>'+
+      '<div class="big" style="color:'+(zones.length>0?'var(--critical)':'var(--ink)')+'">'+zones.length+'</div>'+
+      '<span class="sub">spatial clusters of degraded jets</span></div>'+
+    '<div class="tile"><span class="lab">Emergencies</span>'+
+      '<div class="big" style="color:'+((idx.emergencies||0)>0?'var(--critical)':'var(--ink)')+'">'+(idx.emergencies||0)+'</div>'+
+      '<span class="sub">squawk 7500 / 7600 / 7700</span></div>';
+
+  const st=[['Airborne',idx.airborne],['Total tracked',idx.total],['Holding',idx.holding],['Dark',idx.dark],['Degraded',(idx.degraded_pct!=null?idx.degraded_pct+'%':'—')]];
+  $('#subStats').innerHTML = st.map(p=>'<div class="sstat"><b>'+num(p[1])+'</b><span>'+p[0]+'</span></div>').join('');
+
+  $('#mapCap').textContent = S.live.region.name;
+  $('#mapBand').textContent = b.label;
+  $('#mapBand').style.background=b.f; $('#mapBand').style.color=b.c;
+}
+function gaugeSVG(v){
+  const cx=52,cy=52,r=42;
+  const p=a=>[cx+r*Math.cos(a*Math.PI/180), cy+r*Math.sin(a*Math.PI/180)];
+  const a0=180, a1=180+1.8*Math.max(0,Math.min(100,v));
+  const s=p(a0), eBg=p(360), eV=p(a1);
+  const col=gaugeColor(v);
+  const big = a1>270; // large-arc flag for value sweep
+  return '<svg viewBox="0 0 104 66" width="104" height="66" aria-label="anomaly gauge">'+
+    '<path d="M'+s[0]+' '+s[1]+' A'+r+' '+r+' 0 0 1 '+eBg[0]+' '+eBg[1]+'" fill="none" stroke="#EEF4EF" stroke-width="9" stroke-linecap="round"/>'+
+    '<path d="M'+s[0]+' '+s[1]+' A'+r+' '+r+' 0 '+(big?1:0)+' 1 '+eV[0]+' '+eV[1]+'" fill="none" stroke="'+col+'" stroke-width="9" stroke-linecap="round"/>'+
+    '</svg>';
+}
+
+/* ---------- ANOMALY FEED ---------- */
+function renderFeed(){
+  const el=$('#feed');
+  let list=(S.live.top||[]).slice();
+  // emergencies first, then anomaly desc (top already anomaly-sorted)
+  list.sort((a,b)=>{
+    const ea=(a.flags||[]).indexOf('emergency')>=0?1:0;
+    const eb=(b.flags||[]).indexOf('emergency')>=0?1:0;
+    if(ea!==eb) return eb-ea;
+    return (b.anomaly||0)-(a.anomaly||0);
+  });
+  if(!list.length){ el.innerHTML='<div class="emptyfeed">No anomalous aircraft right now — airspace looks clean.</div>'; return; }
+  el.innerHTML = list.map(ac=>{
+    const b=band(ac.band);
+    return '<div class="feed-row'+(S.selected===ac.hex?' sel':'')+'" data-hex="'+esc(ac.hex)+'">'+
+      '<div style="min-width:0">'+
+        '<div class="cs">'+esc(callsign(ac))+'<span class="hexs">'+esc(ac.hex)+'</span></div>'+
+        '<div class="meta">'+esc(ac.type||'—')+' · '+esc(ac.country||'?')+(ac.alt?' · '+Math.round(ac.alt).toLocaleString()+' ft':'')+'</div>'+
+      '</div>'+
+      '<div><div class="an" style="color:'+b.c+'">'+Math.round(ac.anomaly||0)+'</div><div class="anl">'+b.label+'</div></div>'+
+      flagBadges(ac.flags)+
+    '</div>';
+  }).join('');
+  el.querySelectorAll('.feed-row').forEach(r=> r.addEventListener('click',()=>selectAircraft(r.dataset.hex)));
+}
+
+/* ---------- LIVE MAP (canvas) ---------- */
+const cv=$('#map'); const cx2=cv.getContext('2d');
+function sizeCanvas(){
+  if(!S.live) return;
+  const bb=S.live.region.bbox; // [latMin,lonMin,latMax,lonMax]
+  const latSpan=bb[2]-bb[0], lonSpan=bb[3]-bb[1];
+  const wrap=cv.parentElement;
+  const cssW=Math.max(260, wrap.clientWidth-16);
+  let cssH=cssW*(latSpan/lonSpan);
+  cssH=Math.max(340, Math.min(560, cssH));
+  const dpr=window.devicePixelRatio||1;
+  cv.style.width=cssW+'px'; cv.style.height=cssH+'px';
+  cv.width=Math.round(cssW*dpr); cv.height=Math.round(cssH*dpr);
+  cx2.setTransform(dpr,0,0,dpr,0,0);
+  S.mapW=cssW; S.mapH=cssH;
+}
+function proj(lat,lon){
+  const bb=S.live.region.bbox;
+  const x=(lon-bb[1])/(bb[3]-bb[1])*S.mapW;
+  const y=(bb[2]-lat)/(bb[2]-bb[0])*S.mapH;
+  return [x,y];
+}
+function drawMap(){
+  if(!S.live) return;
+  const W=S.mapW,H=S.mapH,bb=S.live.region.bbox,g=cx2;
+  g.clearRect(0,0,W,H);
+  g.fillStyle='#FBFDFB'; g.fillRect(0,0,W,H);
+
+  // graticule (1°)
+  g.lineWidth=1; g.strokeStyle='#EAF1EC'; g.fillStyle='#AEBDB2'; g.font='9px '+'ui-monospace,monospace';
+  const lon0=Math.ceil(bb[1]), lon1=Math.floor(bb[3]);
+  for(let lon=lon0; lon<=lon1; lon++){
+    const x=proj(bb[0],lon)[0];
+    g.beginPath(); g.moveTo(x,0); g.lineTo(x,H); g.stroke();
+    g.fillText((lon>=0?lon+'°E':(-lon)+'°W'), x+3, H-4);
+  }
+  const lat0=Math.ceil(bb[0]), lat1=Math.floor(bb[2]);
+  for(let lat=lat0; lat<=lat1; lat++){
+    const y=proj(lat,bb[1])[1];
+    g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke();
+    g.fillText(lat+'°N', 3, y-3);
+  }
+
+  // region radius ring (ellipse in this projection)
+  const rg=S.live.region, latRad=rg.lat*Math.PI/180;
+  const c=proj(rg.lat,rg.lon);
+  const rY=(rg.radius_nm/60)/(bb[2]-bb[0])*H;
+  const rX=(rg.radius_nm/(60*Math.max(.2,Math.cos(latRad))))/(bb[3]-bb[1])*W;
+  g.save(); g.strokeStyle='rgba(46,139,87,.28)'; g.setLineDash([5,5]); g.lineWidth=1.2;
+  g.beginPath(); g.ellipse(c[0],c[1],rX,rY,0,0,2*Math.PI); g.stroke(); g.restore();
+
+  // zones (under aircraft)
+  (S.live.zones||[]).forEach(z=>{
+    if(z.lat==null||z.lon==null) return;
+    const p=proj(z.lat,z.lon);
+    const rad=Math.max(18, Math.min(46, 12+z.count*4.5));
+    g.beginPath(); g.arc(p[0],p[1],rad,0,2*Math.PI);
+    g.fillStyle='rgba(217,115,13,.11)'; g.fill();
+    g.lineWidth=1.4; g.strokeStyle='rgba(217,115,13,.55)'; g.stroke();
+    g.fillStyle='#B85E08'; g.font='bold 12px system-ui'; g.textAlign='center'; g.textBaseline='middle';
+    g.fillText(String(z.count), p[0], p[1]);
+    g.textAlign='start'; g.textBaseline='alphabetic';
+  });
+
+  // aircraft — draw normal first, then elevated, then critical on top
+  S.plotted=[];
+  const acs=(S.live.aircraft||[]).filter(a=> a.lat!=null && a.lon!=null);
+  const rank={normal:0,elevated:1,critical:2};
+  acs.sort((a,b)=> (rank[a.band]||0)-(rank[b.band]||0));
+  acs.forEach(a=>{
+    const p=proj(a.lat,a.lon); const b=band(a.band);
+    const sel=S.selected===a.hex;
+    let size = a.band==='critical'?7.5 : a.band==='elevated'?6 : 4.4;
+    let alpha = a.band==='normal'?0.5:0.95;
+    if(a.ground){ size=3.4; alpha=0.28; }
+    plane(g,p[0],p[1],a.track,size,b.c,alpha,a.ground);
+    S.plotted.push({x:p[0],y:p[1],ac:a});
+    if(sel){
+      g.beginPath(); g.arc(p[0],p[1],size+6,0,2*Math.PI);
+      g.strokeStyle='#2E8B57'; g.lineWidth=2; g.stroke();
+    }
+  });
+}
+function plane(g,x,y,track,size,fill,alpha,ground){
+  g.save(); g.translate(x,y); g.globalAlpha=alpha; g.fillStyle=fill;
+  if(ground || track==null){
+    g.beginPath(); g.arc(0,0,Math.max(2.4,size*0.6),0,2*Math.PI); g.fill();
+  }else{
+    g.rotate(track*Math.PI/180);
+    g.beginPath();
+    g.moveTo(0,-size);
+    g.lineTo(size*0.72,size*0.82);
+    g.lineTo(0,size*0.42);
+    g.lineTo(-size*0.72,size*0.82);
+    g.closePath(); g.fill();
+  }
+  g.restore();
+}
+// hover + click
+const mtip=$('#mapTip');
+function nearest(px,py){
+  let best=null,bd=1e9;
+  (S.plotted||[]).forEach(pt=>{
+    const d=(pt.x-px)*(pt.x-px)+(pt.y-py)*(pt.y-py);
+    if(d<bd){ bd=d; best=pt; }
+  });
+  return (best && bd<=200)?best:null;
+}
+cv.addEventListener('mousemove', e=>{
+  const rc=cv.getBoundingClientRect();
+  const px=e.clientX-rc.left, py=e.clientY-rc.top;
+  const hit=nearest(px,py);
+  if(!hit){ mtip.style.opacity='0'; cv.style.cursor='crosshair'; return; }
+  const a=hit.ac; const fl=(a.flags||[]).map(f=>(FLAG[f]||{}).short||f).join(' ');
+  mtip.innerHTML='<div class="cs">'+esc(callsign(a))+'</div>'+
+    '<div class="p">'+esc(a.hex)+' · '+esc(a.type||'—')+'</div>'+
+    (a.alt?'<div>'+Math.round(a.alt).toLocaleString()+' ft · NIC '+num(a.nic)+' · NACp '+num(a.nac_p)+'</div>':'')+
+    (fl?'<div class="fl">'+esc(fl)+'</div>':'');
+  const wrap=cv.parentElement.getBoundingClientRect();
+  let lx=e.clientX-wrap.left+12, ly=e.clientY-wrap.top+12;
+  if(lx>wrap.width-210) lx=wrap.width-210;
+  mtip.style.left=lx+'px'; mtip.style.top=ly+'px'; mtip.style.opacity='1';
+  cv.style.cursor='pointer';
+});
+cv.addEventListener('mouseleave',()=> mtip.style.opacity='0');
+cv.addEventListener('click', e=>{
+  const rc=cv.getBoundingClientRect();
+  const hit=nearest(e.clientX-rc.left, e.clientY-rc.top);
+  if(hit) selectAircraft(hit.ac.hex);
+});
+let rt=null;
+window.addEventListener('resize',()=>{ if(rt) clearTimeout(rt); rt=setTimeout(()=>{ if(S.live){ sizeCanvas(); drawMap(); } },140); });
+
+/* ---------- SPARKLINE ---------- */
+function renderSpark(){
+  const s=(S.history&&S.history.series)||[];
+  const el=$('#sparkChart');
+  if(!s.length){ el.innerHTML='<div class="cap">Building history…</div>'; $('#sparkVal').innerHTML=''; return; }
+  const W=1000,H=140, pad={l:6,r:6,t:10,b:10};
+  const iw=W-pad.l-pad.r, ih=H-pad.t-pad.b, n=s.length;
+  const X=i=> pad.l + (n===1?iw/2:iw*i/(n-1));
+  const Y=v=> pad.t + ih*(1-Math.max(0,Math.min(100,v))/100);
+  let area='M'+X(0)+' '+(H-pad.b), line='';
+  s.forEach((d,i)=>{ const x=X(i),y=Y(d.anomaly||0); area+=' L'+x+' '+y; line+=(i?' L':'M')+x+' '+y; });
+  area+=' L'+X(n-1)+' '+(H-pad.b)+' Z';
+  const y75=Y(75), y40=Y(40);
+  const last=s[s.length-1]||{};
+  el.innerHTML=
+    '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="none" style="display:block;height:120px" role="img" aria-label="anomaly index over time">'+
+    '<defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">'+
+      '<stop offset="0" stop-color="#2E8B57" stop-opacity="0.28"/>'+
+      '<stop offset="1" stop-color="#2E8B57" stop-opacity="0.02"/></linearGradient></defs>'+
+    '<line x1="'+pad.l+'" y1="'+y75+'" x2="'+(W-pad.r)+'" y2="'+y75+'" stroke="#D9730D" stroke-opacity="0.4" stroke-dasharray="4 4"/>'+
+    '<line x1="'+pad.l+'" y1="'+y40+'" x2="'+(W-pad.r)+'" y2="'+y40+'" stroke="#E3AE00" stroke-opacity="0.4" stroke-dasharray="4 4"/>'+
+    '<path d="'+area+'" fill="url(#sg)"/>'+
+    '<path d="'+line+'" fill="none" stroke="'+gaugeColor(last.anomaly||0)+'" stroke-width="2.2"/>'+
+    '</svg>';
+  $('#sparkVal').innerHTML='now <b style="color:'+gaugeColor(last.anomaly||0)+'">'+Math.round(last.anomaly||0)+'</b> · '+n+' pts';
+}
+
+/* ---------- TABS ---------- */
+$('#tabs').querySelectorAll('.tab').forEach(b=> b.addEventListener('click',()=>{ S.tab=b.dataset.tab; setTab(S.tab); renderTab(); }));
+function setTab(t){ $('#tabs').querySelectorAll('.tab').forEach(b=> b.classList.toggle('active', b.dataset.tab===t)); }
+function renderTab(){
+  const el=$('#tabContent');
+  if(S.tab==='case') renderCase(el);
+  else if(S.tab==='brief') renderBrief(el);
+  else if(S.tab==='evidence') renderEvidence(el);
+  else if(S.tab==='ask') renderAsk(el);
+}
+
+/* ---------- BRIEF ---------- */
+function renderCase(el){
+  el.innerHTML = '<div class="panel" style="padding:16px"><span class="spin"></span> '
+               + 'Building case — detections plus the open-source record…</div>';
+  apiGet('/api/region/'+S.rid+'/case').then(c=>{
+    const corr = c.corroboration || {};
+    const cites = corr.citations || [];
+    const STATUS = {
+      CORROBORATED:            ['#D9730D','Independently corroborated'],
+      BENIGN_EXPLANATION_FOUND:['#3AA564','Benign explanation published'],
+      CONTEXT_ONLY:            ['#E3AE00','Context only'],
+      UNCORROBORATED:          ['#6B7C70','No open reporting yet'],
+      UNCONFIGURED:            ['#6B7C70','Corroboration not configured']
+    };
+    const [col,label] = STATUS[corr.status] || STATUS.UNCONFIGURED;
+
+    const findings = (c.findings||[]).slice(0,8).map(f=>
+      '<div class="feed-row" style="cursor:default">'
+      + '<div><b>'+esc(f.aircraft)+'</b> — '+esc(f.finding||'')
+      + '<div class="cap" style="margin-top:3px">'+esc(f.detail||'')+'</div></div>'
+      + '<div style="text-align:right"><b style="color:'+gaugeColor(f.anomaly||0)+'">'
+      + (f.anomaly||0)+'</b><div class="cap">'+esc(f.band||'')+'</div></div></div>'
+    ).join('') || '<div class="cap" style="padding:8px 0">No detector fired in this window.</div>';
+
+    const sources = cites.length ? cites.map(x=>
+      '<div class="feed-row" style="cursor:default">'
+      + '<div><a href="'+esc(x.link)+'" target="_blank" rel="noopener">'+esc(x.title)+'</a>'
+      + '<div class="cap" style="margin-top:3px">'+esc(x.snippet||'')+'</div></div>'
+      + '<div style="text-align:right"><span class="cap">'+esc(x.bucket)+'</span>'
+      + (x.authoritative?'<div class="cap">authority</div>':'')+'</div></div>'
+    ).join('')
+    : '<div class="cap" style="padding:8px 0">'+esc(corr.summary||'')+'</div>';
+
+    el.innerHTML =
+      '<div class="panel" style="padding:16px">'
+      + '<div class="cap">CASE '+esc(c.case_id||'')+' · '+esc((c.region||{}).name||'')+'</div>'
+      + '<div style="font-size:17px;font-weight:650;margin:8px 0 4px">'+esc(c.recommended_action||'')+'</div>'
+      + '<div class="cap">'+ (c.aircraft_observed||0) +' aircraft observed · '
+      + (c.aircraft_flagged||0) +' flagged</div>'
+      + '<h3 class="sec" style="margin-top:16px">What the telemetry shows</h3>'+findings
+      + '<h3 class="sec" style="margin-top:16px">What the open record says '
+      + '<span style="color:'+col+'">· '+esc(label)+'</span></h3>'
+      + '<div class="cap" style="margin-bottom:8px">'+esc(corr.summary||'')+'</div>'
+      + sources
+      + '<div class="cap" style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">'
+      + 'Detection is deterministic — no model in the decision path. '
+      + 'Corroboration moves the recommended action, never the finding.</div>'
+      + '</div>';
+  }).catch(e=>{ el.innerHTML='<div class="panel" style="padding:16px">Case unavailable — '+esc(e.message)+'</div>'; });
+}
+
+function renderBrief(el){
+  el.innerHTML='<div class="panel" style="padding:18px"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">'+
+    '<div><h2 class="sec">Live airspace brief</h2><div class="cap">synthesized by Grok from the live anomaly signals</div></div>'+
+    '<button class="btn" id="genBrief">Generate live brief (Grok)</button></div>'+
+    '<div id="briefBody"></div></div>';
+  $('#genBrief').addEventListener('click', async ()=>{
+    const btn=$('#genBrief'); btn.disabled=true;
+    $('#briefBody').innerHTML='<div class="inline-load"><span class="spin"></span> Grok is drafting the brief… (10–30s)</div>';
+    try{
+      const d=await apiPost('/api/region/'+S.rid+'/brief', {});
+      $('#briefBody').innerHTML='<div class="doc"><div style="margin-bottom:12px"><span class="modelbadge">model: '+esc(d.model||'grok')+'</span></div>'+mdToHtml(d.markdown||'')+'</div>';
+    }catch(e){ $('#briefBody').innerHTML='<div class="msg err">Could not generate brief: '+esc(e.message)+'</div>'; }
+    finally{ btn.disabled=false; }
+  });
+}
+function mdToHtml(md){
+  const lines=String(md).replace(/\r/g,'').split('\n');
+  let html='', list=null;
+  const inline=s=> esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>');
+  const closeList=()=>{ if(list){ html+='</'+list+'>'; list=null; } };
+  lines.forEach(raw=>{
+    const line=raw.replace(/\s+$/,''); let m;
+    if(/^\s*$/.test(line)){ closeList(); return; }
+    if((m=line.match(/^(#{1,3})\s+(.*)$/))){ closeList(); const lv=m[1].length; html+='<h'+lv+'>'+inline(m[2])+'</h'+lv+'>'; return; }
+    if((m=line.match(/^\s*[-*]\s+(.*)$/))){ if(list!=='ul'){ closeList(); html+='<ul>'; list='ul'; } html+='<li>'+inline(m[1])+'</li>'; return; }
+    if((m=line.match(/^\s*\d+\.\s+(.*)$/))){ if(list!=='ol'){ closeList(); html+='<ol>'; list='ol'; } html+='<li>'+inline(m[1])+'</li>'; return; }
+    closeList(); html+='<p>'+inline(line)+'</p>';
+  });
+  closeList(); return html;
+}
+
+/* ---------- EVIDENCE ---------- */
+async function renderEvidence(el){
+  el.innerHTML='<div class="panel" style="padding:18px"><h2 class="sec">Evidence chain</h2><div class="cap" style="margin-top:4px">hash-chained log of emergencies, interference onsets & AI adjudications</div><div id="evBody" style="margin-top:12px"><div class="inline-load"><span class="spin"></span> Loading chain…</div></div></div>';
+  try{
+    if(!S.evidence) S.evidence = await apiGet('/api/evidence?region='+encodeURIComponent(S.rid));
+    const d=S.evidence, v=d.verification||{}, chain=d.chain||[];
+    let badge;
+    if(v.intact===true) badge='<span class="intact ok">chain intact ✓ <span style="font-weight:400;font-size:11.5px">· '+(v.rows_checked||chain.length)+' rows verified</span></span>';
+    else if(v.intact===false) badge='<span class="intact bad">chain broken ✗ <span style="font-weight:400;font-size:11.5px">· at row '+esc(v.broken_at)+'</span></span>';
+    else badge='<span class="intact info">chain pending <span style="font-weight:400;font-size:11.5px">· '+esc(v.note||v.error||'not yet verified')+'</span></span>';
+    let body=badge;
+    if(chain.length){
+      const rows=chain.map(r=>
+        '<tr><td class="mono">'+esc(r.seq)+'</td><td>'+esc(r.actor)+'</td>'+
+        '<td><span class="kindchip">'+esc(r.kind)+'</span></td>'+
+        '<td>'+esc(r.summary)+'</td>'+
+        '<td class="mono" style="color:var(--ink2)">'+esc(String(r.hash||'').slice(0,12))+'</td></tr>').join('');
+      body+='<div style="overflow-x:auto;margin-top:14px"><table class="ev"><thead><tr><th>Seq</th><th>Actor</th><th>Kind</th><th>Summary</th><th>Hash</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    }else{
+      body+='<div class="cap" style="margin-top:14px">No chain entries yet — the ledger records notable changes (emergencies, interference onset, AI rulings) as they occur.</div>';
+    }
+    $('#evBody').innerHTML=body;
+  }catch(e){ $('#evBody').innerHTML='<div class="msg err">Could not load evidence: '+esc(e.message)+'</div>'; }
+}
+
+/* ---------- ASK ---------- */
+function renderAsk(el){
+  el.innerHTML='<div class="panel" style="padding:18px"><h2 class="sec">Ask Airwatch</h2>'+
+    '<div class="ask-box" style="margin-top:12px"><input id="askInput" placeholder="e.g. is there active GPS jamming here, and which jets are worst affected?" /><button class="btn" id="askBtn">Send</button></div>'+
+    '<div id="askBody"><div class="cap">Answers are grounded in this region\'s live airspace state.</div></div></div>';
+  const send=async ()=>{
+    const q=$('#askInput').value.trim(); if(!q) return;
+    $('#askBtn').disabled=true;
+    $('#askBody').innerHTML='<div class="inline-load"><span class="spin"></span> Thinking…</div>';
+    try{
+      const d=await apiPost('/api/ask', {question:q, region:S.rid});
+      const tools=(d.tool_trace||[]).map(t=>'<span class="toolchip">'+esc(t.tool)+'</span>').join('');
+      $('#askBody').innerHTML='<div class="doc" style="padding:4px 0;max-width:100%">'+mdToHtml(d.answer||'')+'</div>'+
+        '<div style="margin-top:10px"><span class="modelbadge">model: '+esc(d.model||'grok')+'</span></div>'+
+        (tools?'<div class="tools">'+tools+'</div>':'');
+    }catch(e){ $('#askBody').innerHTML='<div class="msg err">Could not answer: '+esc(e.message)+'</div>'; }
+    finally{ $('#askBtn').disabled=false; }
+  };
+  $('#askBtn').addEventListener('click', send);
+  $('#askInput').addEventListener('keydown', e=>{ if(e.key==='Enter') send(); });
+}
+
+/* ---------- AIRCRAFT DRAWER ---------- */
+function openDrawer(){ $('#drawer').classList.add('open'); $('#overlay').classList.add('show'); }
+function closeDrawer(){ $('#drawer').classList.remove('open'); $('#overlay').classList.remove('show'); }
+$('#overlay').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeDrawer(); });
+
+async function selectAircraft(hex){
+  const ac=S.acByHex[hex]; if(!ac) return;
+  S.selected=hex;
+  renderFeed(); drawMap();
+  renderDrawer(ac); openDrawer();
+  if(!ac.dets){ // enrich with detector detail text
+    try{
+      const d=await apiGet('/api/region/'+S.rid+'/aircraft/'+encodeURIComponent(hex));
+      if(d.aircraft){ S.acByHex[hex]=d.aircraft; if(S.selected===hex) renderDrawer(d.aircraft); }
+    }catch(e){/* keep basic view */}
+  }
+}
+function metric(lab,val,amber){ return '<div>'+lab+' <b'+(amber?' class="amber"':'')+'>'+val+'</b></div>'; }
+function renderDrawer(ac){
+  const b=band(ac.band);
+  const dets=ac.dets||[];
+  const nicAmber=(ac.nic!=null&&ac.nic<=1), nacAmber=(ac.nac_p!=null&&ac.nac_p<=1);
+  const detHtml = dets.length ? dets.map(d=>{
+    const m=FLAG[d.code]||{short:(d.code||'').toUpperCase(),sev:'elevated'}; const bb=band(m.sev);
+    return '<div class="detrow"><div class="dh"><span class="fbadge" style="background:'+bb.f+';color:'+bb.c+';border-color:'+bb.c+'44">'+m.short+'</span>'+
+      '<b style="font-size:12.5px">'+esc(d.label||m.label||'')+'</b></div>'+
+      '<div class="dd">'+esc(d.detail||'')+'</div></div>';
+  }).join('') : (ac.flags&&ac.flags.length ? flagBadges(ac.flags) : '<div class="cap">No active detections on this aircraft.</div>');
+
+  $('#drawerIn').innerHTML=
+    '<button class="close" id="drawerClose">×</button>'+
+    '<div class="mono" style="font-size:11.5px;color:var(--ink2);padding-right:24px">'+esc(ac.hex)+' · '+esc(ac.country||'?')+'</div>'+
+    '<div style="display:flex;align-items:flex-end;gap:14px;margin:8px 0 4px">'+
+      '<div><div style="font-size:22px;font-weight:700;letter-spacing:-.3px">'+esc(callsign(ac))+'</div>'+
+        '<div class="cap">'+esc(ac.type||'—')+(ac.reg?' · '+esc(ac.reg):'')+'</div></div>'+
+    '</div>'+
+    '<div style="display:flex;align-items:flex-end;gap:12px;margin:12px 0 4px">'+
+      '<div class="an-big" style="color:'+b.c+'">'+Math.round(ac.anomaly||0)+'</div>'+
+      '<div style="padding-bottom:8px"><span class="bandchip" style="background:'+b.f+';color:'+b.c+'">'+b.label+'</span>'+
+        '<div class="cap" style="margin-top:4px">anomaly score</div></div></div>'+
+    '<div class="metrics">'+
+      metric('Altitude', ac.alt!=null?Math.round(ac.alt).toLocaleString()+' ft':'—')+
+      metric('Ground speed', ac.gs!=null?Math.round(ac.gs)+' kt':'—')+
+      metric('Track', ac.track!=null?Math.round(ac.track)+'°':'—')+
+      metric('Squawk', ac.squawk||'—', ['7500','7600','7700'].indexOf(String(ac.squawk))>=0)+
+      metric('NIC', num(ac.nic), nicAmber)+
+      metric('NACp', num(ac.nac_p), nacAmber)+
+    '</div>'+
+    '<h2 class="sec" style="margin:16px 0 4px">Detections</h2>'+ detHtml +
+    '<button class="btn" id="investBtn" style="width:100%;margin-top:16px">Investigate with Grok</button>'+
+    '<div id="invResult" style="margin-top:14px">'+(S.invByHex[ac.hex]||'')+'</div>';
+  $('#drawerClose').addEventListener('click', closeDrawer);
+  $('#investBtn').addEventListener('click', ()=>investigate(ac.hex));
+}
+async function investigate(hex){
+  const btn=$('#investBtn'); btn.disabled=true;
+  $('#invResult').innerHTML='<div class="inline-load"><span class="spin"></span> Grok is investigating… (10–40s)</div>';
+  try{
+    const d=await apiPost('/api/region/'+S.rid+'/investigate', {hex:hex, aircraft:S.acByHex[hex]});
+    const iv=d.investigation||{};
+    const causeMap={
+      gps_jamming:{b:'critical',t:'GPS jamming'}, gps_spoofing:{b:'critical',t:'GPS spoofing'},
+      emergency:{b:'critical',t:'Emergency'}, holding:{b:'elevated',t:'Holding'},
+      benign:{b:'normal',t:'Benign'}, unknown:{b:'elevated',t:'Unknown'}
+    };
+    const cm=causeMap[iv.likely_cause]||causeMap.unknown; const cb=band(cm.b);
+    const intf=iv.is_interference;
+    const cites=(iv.citations||[]).map(c=>'<span class="toolchip">'+esc(c)+'</span>').join('');
+    const html=
+      '<span class="causechip" style="background:'+cb.f+';color:'+cb.c+'">'+esc(cm.t)+'</span>'+
+      '<div style="font-size:13px;font-weight:700;margin:10px 0 4px;color:'+(intf?'var(--critical)':'var(--normal)')+'">INTERFERENCE: '+(intf?'YES':'NO')+' <span style="color:var(--ink2);font-weight:500">('+pct(iv.confidence)+'% conf)</span></div>'+
+      '<div style="font-weight:700;font-size:13.5px;margin:8px 0 4px">'+esc(iv.assessment||'')+'</div>'+
+      (iv.rationale?'<div style="font-size:12.5px;margin:6px 0;color:#243329">'+esc(iv.rationale)+'</div>':'')+
+      (iv.recommendation?'<div style="font-size:12.5px;margin:8px 0;color:#243329"><b>Recommendation:</b> '+esc(iv.recommendation)+'</div>':'')+
+      (cites?'<div class="tools" style="margin-top:8px">'+cites+'</div>':'')+
+      '<div style="margin-top:12px"><span class="modelbadge">model: '+esc(iv.model||d.model||'grok')+'</span></div>';
+    S.invByHex[hex]=html;
+    $('#invResult').innerHTML=html;
+  }catch(e){ $('#invResult').innerHTML='<div class="msg err">Investigation failed: '+esc(e.message)+'</div>'; }
+  finally{ btn.disabled=false; }
+}
+
+/* ---------- init ---------- */
+(async function init(){
+  try{
+    await loadRegions();
+    await selectRegion(S.def);
+  }catch(e){
+    $('#boot').innerHTML='<div class="msg err">Could not reach the airspace API: '+esc(e.message)+'</div>';
+  }
+})();
+})();
+</script>
+</body>
+</html>
