@@ -84,7 +84,7 @@ ACTION:   MONITOR — 3 aircraft at critical integrity loss with no
 ## Run it
 
 ```bash
-git clone https://github.com/<owner>/airwatch && cd airwatch
+git clone https://github.com/king-star-12/airwatch && cd airwatch
 python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
 cp .env.example .env          # add SERPAPI_KEY to enable corroboration
 cd backend && ../.venv/bin/python -m uvicorn app.main:app --port 8099
