@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse as _JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import adsb, report as _report, service
+from . import adsb, advisories as _adv, footprint as _fp, report as _report, service
 from .config import config
 
 _here = Path(__file__).resolve()
@@ -109,6 +109,20 @@ async def report(request: Request):
     })
 
 
+async def advisories_list(request: Request):
+    """Published FAA GPS interference advisories — the predictions."""
+    return JSONResponse({"advisories": [a.as_dict() for a in await _run(_adv.load_all)]})
+
+
+async def advisory_measure(request: Request):
+    """Measure a published advisory against what aircraft actually report."""
+    aid = request.path_params["aid"].replace("_", " ")
+    adv = await _run(_adv.get, aid)
+    if not adv:
+        return JSONResponse({"error": f"no advisory {aid}"}, status_code=404)
+    return JSONResponse(await _run(_fp.measure, adv))
+
+
 async def brief(request: Request):
     return JSONResponse(await _run(service.brief_region, _rid(request)))
 
@@ -131,6 +145,8 @@ async def ask(request: Request):
 
 
 routes = [
+    Route("/api/advisories", advisories_list),
+    Route("/api/advisory/{aid}/measure", advisory_measure),
     Route("/api/region/{rid}/case", case),
     Route("/api/region/{rid}/report", report),
     Route("/api/health", health),
