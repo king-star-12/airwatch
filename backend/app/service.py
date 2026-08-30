@@ -432,6 +432,40 @@ def ask(question: str, rid: str) -> dict:
                       context_hint=f"Active region is '{rid}'.")
 
 
+# Most significant case seen per region, so the record survives the event.
+# Interference runs to a schedule and stops; "nothing right now" is not the
+# same statement as "nothing here", and only one of them is useful to an
+# operator deciding whether to route freight through this airspace.
+_PEAK: dict[str, dict] = {}
+_PEAK_TTL = 12 * 3600.0
+
+
+def _remember(rid: str, case: dict) -> None:
+    flagged = case.get("aircraft_flagged") or 0
+    if not flagged:
+        return
+    prev = _PEAK.get(rid)
+    now = time.time()
+    if prev and (now - prev["at"]) < _PEAK_TTL and prev["flagged"] >= flagged:
+        return
+    _PEAK[rid] = {
+        "at": now,
+        "flagged": flagged,
+        "case_id": case.get("case_id"),
+        "observed_at": case.get("generated_at"),
+        "aircraft_observed": case.get("aircraft_observed"),
+        "recommended_action": case.get("recommended_action"),
+        "findings": (case.get("findings") or [])[:6],
+    }
+
+
+def peak_case(rid: str) -> dict | None:
+    p = _PEAK.get(rid)
+    if not p or (time.time() - p["at"]) > _PEAK_TTL:
+        return None
+    return {k: v for k, v in p.items() if k != "at"}
+
+
 # --- the case ----------------------------------------------------------------
 def build_case(rid: str, recency: str | None = None) -> dict:
     """A detection plus the open record around it — the unit a human can act on.
@@ -490,7 +524,7 @@ def build_case(rid: str, recency: str | None = None) -> dict:
     else:
         action = "MONITOR — detectors firing below critical; watch the trend."
 
-    return {
+    case = {
         "case_id": f"AW-{rid.upper()}-{int(snap.get('epoch') or 0)}",
         "region": region,
         "generated_at": corr["checked_at"],
@@ -507,3 +541,6 @@ def build_case(rid: str, recency: str | None = None) -> dict:
                 " + FAA NOTAM" if corr.get("notams") else ""),
         },
     }
+    _remember(rid, case)
+    case["last_significant"] = peak_case(rid)
+    return case

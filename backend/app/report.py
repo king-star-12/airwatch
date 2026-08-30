@@ -84,9 +84,13 @@ def render_html(case: dict[str, Any]) -> str:
         for n in (corr.get("notams") or [])
     ) or "<li class='sub'>No published interference NOTAMs retrieved for this area.</li>"
 
+    # Built without an f-string expression: a backslash inside one is a syntax
+    # error before Python 3.12, and this ships in a 3.11 image.
+    _USED = " <b>(used)</b>"
+    _UNUSED = ' <span class="sub">(not used)</span>'
     srcs = "".join(
-        f"<li>{_e(s.get('name'))} — {_e(s.get('role'))}"
-        f"{' <b>(used)</b>' if s.get('used') else ' <span class=\"sub\">(not used)</span>'}</li>"
+        "<li>" + _e(s.get("name")) + " — " + _e(s.get("role"))
+        + (_USED if s.get("used") else _UNUSED) + "</li>"
         for s in (corr.get("sources") or [])
     )
 
@@ -143,6 +147,11 @@ footer {{ margin-top:22px; padding-top:9px; border-top:1px solid #E4E7EC;
 <h2>What the telemetry shows</h2>
 <table><thead><tr><th>Aircraft</th><th>Finding</th><th class="num">Anomaly</th><th>Band</th></tr></thead>
 <tbody>{rows}</tbody></table>
+
+<h2>Most significant case in the retention window</h2>
+<p class="sub">{_e((case.get('last_significant') or {}).get('recommended_action')
+   or 'No flagged case recorded in the last 12 hours.')}
+{(' · ' + _e((case.get('last_significant') or {}).get('observed_at'))) if case.get('last_significant') else ''}</p>
 
 <h2>Natural-cause check — space weather</h2>
 <p class="sub">{_e(corr.get('summary'))}</p>

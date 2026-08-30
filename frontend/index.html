@@ -3,8 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>◆ Airwatch — live airspace-integrity monitor</title>
-<script>window.AIRSPACE_API="https://faultline-api.kindriver-8303c630.centralindia.azurecontainerapps.io";</script>
+<title>Airwatch — US air cargo network integrity</title>
+<!-- Same-origin by default; set window.AIRSPACE_API to point the dashboard
+     at a backend on another host. -->
+<script>window.AIRSPACE_API = window.AIRSPACE_API || "";</script>
 <style>
   :root{
     --bg:#F6FAF6; --panel:#FFFFFF; --border:#E3EDE5; --radius:14px;
@@ -196,7 +198,7 @@
   <header class="topbar">
     <div class="brand">
       <div class="wordmark"><span class="dia">◆</span> Airwatch</div>
-      <div class="tagline">The truth in the airspace — live.</div>
+      <div class="tagline">Navigation integrity across the US air-freight network — live.</div>
     </div>
     <div class="pills" id="pills"></div>
     <div class="live">
@@ -699,6 +701,13 @@ function renderCase(el){
       + '<div class="cap">'+(c.aircraft_observed||0)+' observed · '+(c.aircraft_flagged||0)+' flagged · '
       + 'Kp '+esc(sw.kp)+' ('+esc(sw.condition)+')</div>'
       + '<h3 class="sec" style="margin-top:16px">What the telemetry shows</h3>'+rows
+      + (c.last_significant && !(c.findings||[]).length
+          ? '<div class="cap" style="margin-top:10px;padding:9px 11px;border:1px solid var(--border);border-radius:9px">'
+            + '<b>Quiet now — most significant case in the last 12h:</b> '
+            + esc(c.last_significant.recommended_action||'')
+            + '<div style="margin-top:3px">' + esc(c.last_significant.observed_at||'')
+            + ' · ' + (c.last_significant.flagged||0) + ' aircraft flagged</div></div>'
+          : '')
       + '<h3 class="sec" style="margin-top:16px">Natural-cause check '
       + '<span style="color:'+col+'">· '+esc(label)+'</span></h3>'
       + '<div class="cap" style="margin-bottom:6px">'+esc(corr.summary||'')+'</div>'+alerts

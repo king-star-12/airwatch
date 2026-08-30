@@ -16,7 +16,11 @@ from starlette.staticfiles import StaticFiles
 from . import adsb, report as _report, service
 from .config import config
 
-FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
+_here = Path(__file__).resolve()
+# repo layout: <root>/backend/app/main.py with <root>/frontend
+# image layout: /app/app/main.py with /app/frontend
+_candidates = [_here.parent.parent.parent / "frontend", _here.parent.parent / "frontend"]
+FRONTEND_DIR = next((p for p in _candidates if p.exists()), _candidates[0])
 
 
 def JSONResponse(content, **kw):
