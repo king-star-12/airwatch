@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Airwatch — US air cargo network integrity</title>
+<title>Aeroscan — US air cargo network integrity</title>
 <!-- Same-origin by default; set window.AIRSPACE_API to point the dashboard
      at a backend on another host. -->
 <script>window.AIRSPACE_API = window.AIRSPACE_API || "";</script>
@@ -214,7 +214,7 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="wordmark"><span class="dia">◆</span> Airwatch</div>
+      <div class="wordmark"><span class="dia">◆</span> Aeroscan</div>
       <div class="tagline">Navigation integrity across the US air-freight network — live.</div>
     </div>
     <div class="pills" id="pills"></div>
@@ -698,7 +698,7 @@ function renderAdvisory(el){
       '<div class="panel" style="padding:16px">'
       + '<h3 class="sec">The FAA publishes where GPS may fail. Nobody measures whether it did.</h3>'
       + '<div class="cap" style="margin-bottom:10px">Each advisory below is a real, published '
-      + 'flight advisory for a military GPS test. Airwatch samples the sky across and beyond '
+      + 'flight advisory for a military GPS test. Aeroscan samples the sky across and beyond '
       + 'that circle and reports what aircraft actually experienced.</div>'
       + '<div class="adv-chips">'+chips+'</div>'
       + '<div id="advBody" style="margin-top:14px"><span class="spin"></span> measuring…</div>'
@@ -880,7 +880,7 @@ async function renderEvidence(el){
 
 /* ---------- ASK ---------- */
 function renderAsk(el){
-  el.innerHTML='<div class="panel" style="padding:18px"><h2 class="sec">Ask Airwatch</h2>'+
+  el.innerHTML='<div class="panel" style="padding:18px"><h2 class="sec">Ask Aeroscan</h2>'+
     '<div class="ask-box" style="margin-top:12px"><input id="askInput" placeholder="e.g. is there active GPS jamming here, and which jets are worst affected?" /><button class="btn" id="askBtn">Send</button></div>'+
     '<div id="askBody"><div class="cap">Answers are grounded in this region\'s live airspace state.</div></div></div>';
   const send=async ()=>{

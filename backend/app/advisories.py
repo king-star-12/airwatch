@@ -159,7 +159,7 @@ def parse(text: str, source_url: str = "") -> Advisory | None:
 def fetch(url: str) -> Advisory | None:
     """Download and parse one advisory PDF."""
     try:
-        r = httpx.get(url, timeout=_TIMEOUT, headers={"User-Agent": "airwatch/1.0"},
+        r = httpx.get(url, timeout=_TIMEOUT, headers={"User-Agent": "aeroscan/1.0"},
                       follow_redirects=True)
         if r.status_code != 200:
             return None

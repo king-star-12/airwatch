@@ -1,6 +1,6 @@
-# Airwatch
+# Aeroscan
 
-**Satellite navigation is being jammed over civilian airspace every day. Airwatch watches for it in live aircraft telemetry, then goes and finds out whether anyone else noticed.**
+**Satellite navigation is being jammed over civilian airspace every day. Aeroscan watches for it in live aircraft telemetry, then goes and finds out whether anyone else noticed.**
 
 A product of [Clustral AI Labs](https://clustralai.com) · DevNetwork [API + Cloud + AI] Hackathon 2026
 
@@ -14,7 +14,7 @@ The signal is hiding in plain sight. Every ADS-B-equipped aircraft broadcasts tw
 
 Nobody is turning that into something a human can act on.
 
-## The gap Airwatch closes
+## The gap Aeroscan closes
 
 Existing tools stop at a heat map: *this area looks bad.* That is a **score**, and a score creates work — someone still has to figure out whether it means anything.
 
@@ -23,7 +23,7 @@ The two questions any reviewer asks next are:
 1. **Is anyone else seeing this?**
 2. **Is there a published, innocent explanation?** (an announced military exercise, a scheduled GNSS test)
 
-Question 2 is the one that matters most. An investigation that can only ever say "suspicious" is an alarm, not an investigation. **Airwatch answers both, with citations, and will clear a region as readily as it will escalate one.**
+Question 2 is the one that matters most. An investigation that can only ever say "suspicious" is an alarm, not an investigation. **Aeroscan answers both, with citations, and will clear a region as readily as it will escalate one.**
 
 ## How it works
 
@@ -41,7 +41,7 @@ telemetry       detectors        official NOTAMs       the evidence     file (PD
 
 GNSS integrity does not only degrade because someone is jamming it. **Space weather degrades it too.** A geomagnetic storm drives ionospheric scintillation that scatters the L-band signals GPS depends on; a solar radio burst raises the noise floor across whole continents. Both produce exactly the signature this system watches for — low NIC, low NACp, many aircraft, wide area.
 
-So before Airwatch escalates anything, it checks whether the sun did it:
+So before Aeroscan escalates anything, it checks whether the sun did it:
 
 | Source | Role | Key needed |
 |---|---|---|
@@ -88,7 +88,7 @@ That last line is the whole product. Not *"something looks wrong"* — a conclus
 ## Run it
 
 ```bash
-git clone https://github.com/king-star-12/airwatch && cd airwatch
+git clone https://github.com/king-star-12/aeroscan && cd aeroscan
 python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
 cp .env.example .env          # optional keys; runs without any
 cd backend && ../.venv/bin/python -m uvicorn app.main:app --port 8099
@@ -139,6 +139,6 @@ Python · Starlette · live community ADS-B feeds · **NOAA SWPC** space weather
 
 ---
 
-**Airwatch is a Clustral AI product.** Clustral builds investigative agents for regulated environments — systems that watch continuously with small models, investigate what they find, and produce evidence that holds up when someone asks you to justify why you acted when you did. Airwatch applies that pattern to navigation integrity.
+**Aeroscan is a Clustral AI product.** Clustral builds investigative agents for regulated environments — systems that watch continuously with small models, investigate what they find, and produce evidence that holds up when someone asks you to justify why you acted when you did. Aeroscan applies that pattern to navigation integrity.
 
 `business@clustralai.com` · [clustralai.com](https://clustralai.com)

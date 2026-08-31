@@ -493,7 +493,7 @@ def peak_case(rid: str) -> dict | None:
 def build_case(rid: str, recency: str | None = None) -> dict:
     """A detection plus the open record around it — the unit a human can act on.
 
-    Airwatch on its own answers "is the telemetry degraded here?". That is a
+    Aeroscan on its own answers "is the telemetry degraded here?". That is a
     score, and a score creates work. A case answers the next two questions a
     reviewer actually asks — is anyone else seeing this, and is there a published
     innocent explanation — and carries the citations for both.

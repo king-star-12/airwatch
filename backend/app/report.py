@@ -174,7 +174,7 @@ suppress a detection.</p>
 </div>
 
 <footer>
-Airwatch · a Clustral AI product · clustralai.com — Situational awareness only.
+Aeroscan · a Clustral AI product · clustralai.com — Situational awareness only.
 Not a navigation aid and not for operational flight use. ADS-B integrity fields
 are self-reported by the aircraft and evidence GNSS trouble, not intent.
 </footer>
@@ -206,7 +206,7 @@ def to_pdf(html_doc: str) -> bytes | None:
 def build(case: dict[str, Any]) -> tuple[bytes, str, str]:
     """Render the case. Returns (body, media_type, filename)."""
     doc = render_html(case)
-    name = str(case.get("case_id") or "airwatch-case")
+    name = str(case.get("case_id") or "aeroscan-case")
     pdf = to_pdf(doc)
     if pdf:
         return pdf, "application/pdf", f"{name}.pdf"

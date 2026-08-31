@@ -1,4 +1,4 @@
-"""Central configuration for the Airwatch backend.
+"""Central configuration for the Aeroscan backend.
 
 All secrets come from environment variables (loaded from a local .env when
 present). Non-secret defaults for this specific Azure + GridDB Cloud deployment

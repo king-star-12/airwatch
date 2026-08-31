@@ -15,7 +15,7 @@ whole continents at once. Both produce exactly the signature this system watches
 for — low NIC, low NACp, on many aircraft, over a wide area.
 
 A monitor that skips that check will confidently report jamming every time the
-sun is active. So before Airwatch escalates anything, it asks the sun first.
+sun is active. So before Aeroscan escalates anything, it asks the sun first.
 
 Two sources, in order of what they can rule out:
 
@@ -69,7 +69,7 @@ _GNSS_RELEVANT = re.compile(
 def _get_json(url: str, **kw) -> Any:
     try:
         r = httpx.get(url, timeout=_TIMEOUT,
-                      headers={"User-Agent": "airwatch/1.0"}, **kw)
+                      headers={"User-Agent": "aeroscan/1.0"}, **kw)
         if r.status_code != 200:
             log.warning("%s -> HTTP %s", url.split("/")[2], r.status_code)
             return None
@@ -136,7 +136,7 @@ def _notams(icao_hint: str | None) -> list[dict[str, Any]]:
     data = _get_json(
         f"{FAA_NOTAM}?icaoLocation={icao_hint}&pageSize=30",
         headers={"client_id": key_id, "client_secret": key_secret,
-                 "User-Agent": "airwatch/1.0"})
+                 "User-Agent": "aeroscan/1.0"})
     items = ((data or {}).get("items") or []) if isinstance(data, dict) else []
     out = []
     for it in items:
