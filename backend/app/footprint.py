@@ -49,7 +49,8 @@ log = logging.getLogger("footprint")
 # "outside the box" question can actually be answered — sampling only the
 # advisory area would guarantee finding nothing beyond it.
 _QUERY_NM = 250
-_RING_POINTS = 8
+_SAMPLE_GAP_S = 7.0
+_RING_POINTS = 6
 
 
 def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -101,15 +102,60 @@ def _degraded(a: dict) -> bool:
     return (nic == 0) or (nacp == 0)
 
 
+# Measuring a 366 nm footprint means nine paced queries, so it is far too slow
+# to run inside a page load. Results are cached and refreshed in the background;
+# a measurement minutes old is still a measurement, and the alternative is a
+# dashboard that hangs for half a minute.
+_MEASURED: dict[str, dict] = {}
+_MEASURE_TTL = 1800.0          # 30 min: a footprint does not move quickly, and
+                               # each refresh costs nine upstream queries
+
+
+def measured_at(advisory_id: str) -> float:
+    """Epoch of the last measurement, 0 if never — used to pick the stalest."""
+    m = _MEASURED.get(advisory_id)
+    return m["_at"] if m else 0.0
+
+
+def cached(advisory_id: str) -> dict | None:
+    m = _MEASURED.get(advisory_id)
+    if not m:
+        return None
+    age = time.time() - m["_at"]
+    if age > _MEASURE_TTL * 3:
+        return None
+    out = {k: v for k, v in m.items() if k != "_at"}
+    out["age_seconds"] = round(age)
+    return out
+
+
+def measure_cached(adv: Advisory, force: bool = False) -> dict:
+    """Serve the cached measurement, refreshing it when stale."""
+    m = _MEASURED.get(adv.id)
+    if m and not force and (time.time() - m["_at"]) < _MEASURE_TTL:
+        out = {k: v for k, v in m.items() if k != "_at"}
+        out["age_seconds"] = round(time.time() - m["_at"])
+        return out
+    fresh = measure(adv)
+    fresh["_at"] = time.time()
+    _MEASURED[adv.id] = fresh
+    out = {k: v for k, v in fresh.items() if k != "_at"}
+    out["age_seconds"] = 0
+    return out
+
+
 def measure(adv: Advisory) -> dict[str, Any]:
     """Compare the published footprint with what aircraft are reporting."""
     seen: dict[str, dict] = {}
     points = _sample_points(adv)
     for i, (lat, lon) in enumerate(points):
         if i:
-            time.sleep(1.2)          # stay under the aggregator rate limit; being
-                                     # throttled drops us to a source with no
-                                     # integrity fields, which is worse than slow
+            # The aggregator limits bursts, not just averages: seven queries at
+            # 1.2s apart is ~49/min instantaneously, which trips the limit even
+            # though the hourly rate looks modest. Spread them out. A footprint
+            # measurement taking a minute is fine; being throttled costs the
+            # live map its aircraft, which is not.
+            time.sleep(_SAMPLE_GAP_S)
         for a in adsb.fetch_region(lat, lon, _QUERY_NM):
             h = a.get("hex")
             if h and h not in seen and a.get("lat") is not None:

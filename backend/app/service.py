@@ -191,6 +191,24 @@ def _log_events(rid: str, snapshot: dict, result: dict) -> None:
 
 
 # --- poll loop ---------------------------------------------------------------
+def _refresh_advisories() -> None:
+    """Warm ONE advisory per cycle — the stalest.
+
+    Measuring a footprint costs nine upstream queries. Refreshing every
+    advisory on every cycle cost thirty six, which on top of the region polls
+    exceeded the aggregator rate limit, tripped its cooldown and starved the
+    live map of aircraft entirely. Warming the single stalest advisory keeps
+    the dashboard responsive within a query budget the feed will actually
+    tolerate.
+    """
+    from . import advisories as _advs, footprint as _fp
+    advs = _advs.load_all()
+    if not advs:
+        return
+    stalest = min(advs, key=lambda a: _fp.measured_at(a.id))
+    _safe(_fp.measure_cached, stalest)
+
+
 def _loop():
     rids = list(regions.POLL_REGIONS)
     gap = max(3.0, config.POLL_SECONDS / max(1, len(rids)))
@@ -201,6 +219,11 @@ def _loop():
         i += 1
         if i % len(rids) == 0:
             _safe(_refresh_narration)
+        # One advisory every fifth region cycle. Measurement is the most
+        # expensive thing this process does and the footprint it measures
+        # changes on the scale of a test window, not a poll.
+        if i % (len(rids) * 5) == 0:
+            _safe(_refresh_advisories)
         time.sleep(gap)
 
 

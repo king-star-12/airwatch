@@ -120,7 +120,7 @@ async def advisory_measure(request: Request):
     adv = await _run(_adv.get, aid)
     if not adv:
         return JSONResponse({"error": f"no advisory {aid}"}, status_code=404)
-    return JSONResponse(await _run(_fp.measure, adv))
+    return JSONResponse(await _run(_fp.measure_cached, adv))
 
 
 async def brief(request: Request):

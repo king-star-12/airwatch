@@ -192,6 +192,23 @@
     .feed-list{max-height:420px}
   }
   @media(max-width:560px){ .kpi-row{grid-template-columns:1fr 1fr} .metrics{grid-template-columns:1fr} }
+  .adv-chips{display:flex;gap:7px;flex-wrap:wrap}
+  .chip-adv{font-size:12.5px;border:1px solid var(--border);background:var(--panel);
+    border-radius:20px;padding:5px 12px;cursor:pointer;color:var(--ink2)}
+  .chip-adv.on{border-color:var(--green);color:var(--green);background:#F2FAF4}
+  .chip-adv b{font-weight:700}
+  .rings{position:relative;width:100%;max-width:320px;aspect-ratio:1;margin:6px auto 4px;
+    display:grid;place-items:center}
+  .ring{position:absolute;border-radius:50%;display:grid;place-items:end center;
+    padding-bottom:4px;font-size:10.5px;color:var(--ink2)}
+  .ring.pub{width:100%;height:100%;border:2px dashed #C7D6CB;background:rgba(199,214,203,.10)}
+  .ring.obs{border:2px solid #D9730D;background:rgba(217,115,13,.13);color:#D9730D;font-weight:600}
+  .ring.none{width:14%;height:14%;border:2px solid #12A150;background:#EAF7EE;
+    place-items:center;font-size:9px;color:#12A150;text-align:center}
+  .adv-stats{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px}
+  .adv-stats div{display:flex;flex-direction:column}
+  .adv-stats b{font-size:17px}
+  .adv-stats span{font-size:10.5px;color:var(--ink2)}
 </style>
 </head>
 <body>
@@ -268,7 +285,8 @@
       </div>
 
       <nav class="tabs" id="tabs">
-        <button class="tab active" data-tab="case">Case</button>
+        <button class="tab active" data-tab="advisory">Advisory check</button>
+        <button class="tab" data-tab="case">Case</button>
         <button class="tab" data-tab="brief">Brief</button>
         <button class="tab" data-tab="evidence">Evidence</button>
         <button class="tab" data-tab="ask">Ask</button>
@@ -292,7 +310,7 @@ const S = {
   regions:[], rid:null, def:null,
   live:null, history:null,
   acByHex:{}, selected:null,
-  tab:'case', evidence:null,
+  tab:'advisory', evidence:null,
   lastFetch:0, pollTimer:null, tickTimer:null,
   invByHex:{}
 };
@@ -657,13 +675,93 @@ $('#tabs').querySelectorAll('.tab').forEach(b=> b.addEventListener('click',()=>{
 function setTab(t){ $('#tabs').querySelectorAll('.tab').forEach(b=> b.classList.toggle('active', b.dataset.tab===t)); }
 function renderTab(){
   const el=$('#tabContent');
-  if(S.tab==='case') renderCase(el);
+  if(S.tab==='advisory') renderAdvisory(el);
+  else if(S.tab==='case') renderCase(el);
   else if(S.tab==='brief') renderBrief(el);
   else if(S.tab==='evidence') renderEvidence(el);
   else if(S.tab==='ask') renderAsk(el);
 }
 
 /* ---------- BRIEF ---------- */
+function renderAdvisory(el){
+  el.innerHTML = '<div class="panel" style="padding:16px"><span class="spin"></span> '
+               + 'Loading published FAA advisories…</div>';
+  apiGet('/api/advisories').then(d=>{
+    const list = d.advisories||[];
+    if(!list.length){ el.innerHTML='<div class="panel" style="padding:16px">No advisories parsed.</div>'; return; }
+    S.advId = S.advId || list[0].id;
+    const chips = list.map(a=>
+      '<button class="chip-adv'+(a.id===S.advId?' on':'')+'" data-adv="'+esc(a.id)+'">'
+      + esc(a.site.split(',')[0])+' <b>'+a.max_radius_nm+' nm</b></button>').join('');
+
+    el.innerHTML =
+      '<div class="panel" style="padding:16px">'
+      + '<h3 class="sec">The FAA publishes where GPS may fail. Nobody measures whether it did.</h3>'
+      + '<div class="cap" style="margin-bottom:10px">Each advisory below is a real, published '
+      + 'flight advisory for a military GPS test. Airwatch samples the sky across and beyond '
+      + 'that circle and reports what aircraft actually experienced.</div>'
+      + '<div class="adv-chips">'+chips+'</div>'
+      + '<div id="advBody" style="margin-top:14px"><span class="spin"></span> measuring…</div>'
+      + '</div>';
+
+    el.querySelectorAll('.chip-adv').forEach(b=> b.addEventListener('click', ()=>{
+      S.advId = b.dataset.adv; renderAdvisory(el);
+    }));
+    loadMeasurement(list.find(a=>a.id===S.advId));
+  }).catch(e=>{ el.innerHTML='<div class="panel" style="padding:16px">Advisories unavailable — '+esc(e.message)+'</div>'; });
+}
+
+function loadMeasurement(adv){
+  if(!adv) return;
+  apiGet('/api/advisory/'+encodeURIComponent(adv.id.replace(/ /g,'_'))+'/measure').then(m=>{
+    const body = document.getElementById('advBody'); if(!body) return;
+    const pub = m.published_radius_nm, obs = m.observed_radius_nm;
+    const ratio = m.observed_vs_published;
+    const CONF = {good:['#12A150','good'], indicative:['#C98A00','indicative'],
+                  thin:['#C98A00','thin'], none:['#B42318','not measurable']};
+    const [cc,cl] = CONF[m.confidence]||CONF.none;
+
+    // the two rings, to scale
+    const obsPct = (obs && pub) ? Math.max(3, Math.round(obs/pub*100)) : 0;
+    const rings =
+      '<div class="rings">'
+      + '<div class="ring pub"><span>published '+pub+' nm</span></div>'
+      + (obs ? '<div class="ring obs" style="width:'+obsPct+'%;height:'+obsPct+'%"><span>observed '
+               + Math.round(obs)+' nm</span></div>'
+             : '<div class="ring none"><span>nothing observed</span></div>')
+      + '</div>';
+
+    const outside = (m.outside_the_box||[]).length
+      ? '<h3 class="sec" style="margin-top:14px">Outside the published area</h3>'
+        + (m.outside_the_box||[]).slice(0,5).map(r=>
+            '<div class="feed-row" style="cursor:default"><div><b>'+esc(r.flight||r.hex)+'</b>'
+            + '<div class="cap">'+r.dist_nm+' nm from centre · published limit '+r.predicted_nm
+            + ' nm · '+(r.alt||'?')+' ft</div></div>'
+            + '<div style="text-align:right;color:#B42318"><b>outside</b></div></div>').join('')
+      : '';
+
+    body.innerHTML =
+      rings
+      + '<div style="font-size:15.5px;font-weight:600;margin:12px 0 6px">'+esc(m.reading)+'</div>'
+      + '<div class="adv-stats">'
+      +   '<div><b>'+m.sampled_aircraft+'</b><span>aircraft sampled</span></div>'
+      +   '<div><b>'+m.integrity_reporting+'</b><span>report integrity ('
+      +     Math.round((m.integrity_coverage||0)*100)+'%)</span></div>'
+      +   '<div><b>'+m.affected_total+'</b><span>degraded</span></div>'
+      +   '<div><b style="color:'+cc+'">'+cl+'</b><span>confidence</span></div>'
+      + '</div>'
+      + outside
+      + '<div class="cap" style="margin-top:12px;border-top:1px solid var(--border);padding-top:9px">'
+      + esc((m.method||{}).population||'') + ' · ' + esc((m.method||{}).sampling||'')
+      + '<br>' + esc((m.method||{}).caveat||'')
+      + (m.age_seconds!=null ? ' · measured '+m.age_seconds+'s ago' : '')
+      + '</div>';
+  }).catch(e=>{
+    const body=document.getElementById('advBody');
+    if(body) body.innerHTML='<div class="cap">Measurement unavailable — '+esc(e.message)+'</div>';
+  });
+}
+
 function renderCase(el){
   el.innerHTML = '<div class="panel" style="padding:16px"><span class="spin"></span> '
                + 'Building case — telemetry, natural-cause check and official record…</div>';
